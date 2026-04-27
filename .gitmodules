@@ -1,3 +1,6 @@
 [submodule "server/src/main/cpp/poco"]
 	path = server/src/main/cpp/poco
 	url = https://github.com/pocoproject/poco.git
+[submodule "server/src/main/cpp/protobuf"]
+	path = server/src/main/cpp/protobuf
+	url = https://github.com/protocolbuffers/protobuf.git
