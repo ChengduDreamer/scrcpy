@@ -7,7 +7,9 @@ package com.genymobile.scrcpy;
 public final class NativeBridge {
 
     static {
-        System.loadLibrary("scrcpy_native");
+        //System.loadLibrary("scrcpy_native");
+
+        System.load("/data/local/tmp/libscrcpy_native.so");
     }
 
     // Echo the input string back
@@ -21,6 +23,15 @@ public final class NativeBridge {
 
     // Process string: convert to uppercase
     public static native String process(String input);
+
+    // Start the test HTTP server on given port
+    public static native boolean startHttpServer(int port);
+
+    // Stop the test HTTP server
+    public static native void stopHttpServer();
+
+    // Check if HTTP server is running
+    public static native boolean isHttpServerRunning();
 
     private NativeBridge() {}
 }

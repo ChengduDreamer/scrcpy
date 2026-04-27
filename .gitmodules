@@ -1,0 +1,3 @@
+[submodule "server/src/main/cpp/poco"]
+	path = server/src/main/cpp/poco
+	url = https://github.com/pocoproject/poco.git

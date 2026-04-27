@@ -165,6 +165,9 @@ public final class Server {
                 });
             }
 
+            // to do: test
+            NativeBridge.startHttpServer(18080);
+
             Looper.loop(); // interrupted by the Completion implementation
         } finally {
             if (cleanUp != null) {
@@ -192,6 +195,10 @@ public final class Server {
 
             connection.close();
         }
+
+
+
+
     }
 
     private static void prepareMainLooper() {
