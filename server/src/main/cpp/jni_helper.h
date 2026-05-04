@@ -2,6 +2,8 @@
 #define JNI_HELPER_H
 
 #include <jni.h>
+
+#include <cstdint>
 #include <string>
 #include <vector>
 

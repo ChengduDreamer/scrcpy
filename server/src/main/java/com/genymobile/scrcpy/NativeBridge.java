@@ -33,5 +33,12 @@ public final class NativeBridge {
     // Check if HTTP server is running
     public static native boolean isHttpServerRunning();
 
+    // Poco WebSocket server (binary/text echo; for QtScrcpy channel)
+    public static native boolean startWebSocketServer(int port);
+
+    public static native void stopWebSocketServer();
+
+    public static native boolean isWebSocketServerRunning();
+
     private NativeBridge() {}
 }

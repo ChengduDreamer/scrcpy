@@ -166,10 +166,12 @@ public final class Server {
             }
 
             // to do: test
-            NativeBridge.startHttpServer(18080);
-
+            //NativeBridge.startHttpServer(18080);
+            NativeBridge.startWebSocketServer(29747);
             Looper.loop(); // interrupted by the Completion implementation
         } finally {
+            NativeBridge.stopWebSocketServer();
+
             if (cleanUp != null) {
                 cleanUp.interrupt();
             }

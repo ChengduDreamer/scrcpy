@@ -3,6 +3,7 @@
 
 #include "http_server.h"
 #include "jni_helper.h"
+#include "poco_websocket_server.h"
 #include "test_native.h"
 
 #define TAG "scrcpy-native"
@@ -12,6 +13,7 @@
 JavaVM *g_jvm = nullptr;
 
 static scrcpy::HttpServer g_httpServer;
+static scrcpy::PocoWebsocketServer g_wsServer;
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void * /* reserved */) {
     g_jvm = vm;
@@ -83,4 +85,29 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_genymobile_scrcpy_NativeBridge_isHttpServerRunning(
     JNIEnv * /*env*/, jclass /*clazz*/) {
     return g_httpServer.IsRunning() ? JNI_TRUE : JNI_FALSE;
+}
+
+// ---------------------------------------------------------------------------
+// Poco WebSocket server
+// ---------------------------------------------------------------------------
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_genymobile_scrcpy_NativeBridge_startWebSocketServer(
+    JNIEnv * /*env*/, jclass /*clazz*/, jint port) {
+    bool ok = g_wsServer.Start(port);
+    LOGI("startWebSocketServer(%d): %s", port, ok ? "started" : "failed");
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_genymobile_scrcpy_NativeBridge_stopWebSocketServer(
+    JNIEnv * /*env*/, jclass /*clazz*/) {
+    LOGI("stopWebSocketServer");
+    g_wsServer.Stop();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_genymobile_scrcpy_NativeBridge_isWebSocketServerRunning(
+    JNIEnv * /*env*/, jclass /*clazz*/) {
+    return g_wsServer.IsRunning() ? JNI_TRUE : JNI_FALSE;
 }
