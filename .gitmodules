@@ -4,3 +4,6 @@
 [submodule "server/src/main/cpp/protobuf"]
 	path = server/src/main/cpp/protobuf
 	url = https://github.com/protocolbuffers/protobuf.git
+[submodule "server/src/main/cpp/QtMirrorProto"]
+	path = server/src/main/cpp/QtMirrorProto
+	url = git@github.com:ChengduDreamer/QtMirrorProto.git

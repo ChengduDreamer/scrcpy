@@ -6,6 +6,48 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Link static Poco into this shared library
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# ---------------------------------------------------------------------------
+# Host protoc + protobuf runtime (for QtMirrorProto on Android cross-build)
+# find_program must see host tools: NDK defaults may hide them.
+# ---------------------------------------------------------------------------
+if(ANDROID)
+    set(_sc_native_saved_prog_mode "${CMAKE_FIND_ROOT_PATH_MODE_PROGRAM}")
+    set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM BOTH)
+endif()
+
+find_program(SC_HOST_PROTOC NAMES protoc protoc.exe
+    HINTS
+        "$ENV{VCPKG_ROOT}/installed/x64-windows/tools/protobuf"
+        "$ENV{VCPKG_ROOT}/installed/x64-windows/bin"
+    DOC "Host Protocol Buffers compiler (generates QtMirrorProto .pb.cc)")
+
+if(ANDROID)
+    set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM "${_sc_native_saved_prog_mode}")
+    unset(_sc_native_saved_prog_mode)
+endif()
+
+if(NOT SC_HOST_PROTOC)
+    message(FATAL_ERROR
+        "protoc not found (host). Install protobuf compiler and ensure it is on PATH, "
+        "or set VCPKG_ROOT. Example: vcpkg install protobuf:x64-windows")
+endif()
+
+set(WITH_PROTOC "${SC_HOST_PROTOC}" CACHE FILEPATH
+    "Host protoc; used by protobuf/ and QtMirrorProto code generation" FORCE)
+set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_CONFORMANCE OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(protobuf_INSTALL OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_PROTOC_BINARIES OFF CACHE BOOL "" FORCE)
+set(protobuf_WITH_ZLIB OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_LIBUPB OFF CACHE BOOL "" FORCE)
+
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/protobuf"
+    "${CMAKE_CURRENT_BINARY_DIR}/protobuf_build")
+
+set(QTMIRROR_PROTOC_EXECUTABLE "${SC_HOST_PROTOC}")
+add_subdirectory(QtMirrorProto)
+
 # Poco: only Foundation + Net (WebSocket lives in Net)
 set(POCO_MINIMAL_BUILD ON CACHE BOOL "Poco minimal" FORCE)
 set(ENABLE_NET ON CACHE BOOL "" FORCE)
@@ -26,8 +68,10 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 find_library(log-lib log)
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
+    PRIVATE
     ${log-lib}
     Poco::Net
+    QtMirrorProto
 )
 
 # Copy .so to standalone output
