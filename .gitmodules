@@ -7,3 +7,12 @@
 [submodule "server/src/main/cpp/QtMirrorProto"]
 	path = server/src/main/cpp/QtMirrorProto
 	url = git@github.com:ChengduDreamer/QtMirrorProto.git
+[submodule "server/src/main/cpp/deps/3rdparty/asio2"]
+	path = server/src/main/cpp/deps/3rdparty/asio2
+	url = https://github.com/zhllxt/asio2.git
+[submodule "server/src/main/cpp/deps/3rdparty/EventBus"]
+	path = server/src/main/cpp/deps/3rdparty/EventBus
+	url = https://github.com/gelldur/EventBus.git
+[submodule "server/src/main/cpp/deps/cpp_base_lib"]
+	path = server/src/main/cpp/deps/cpp_base_lib
+	url = git@github.com:ChengduDreamer/cpp_base_lib.git
