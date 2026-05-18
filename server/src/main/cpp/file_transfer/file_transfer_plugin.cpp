@@ -5,8 +5,8 @@
 #include "file_transfer_plugin.h"
 #include "tc_message.pb.h"
 #include "tc_common_new/log.h"
-#include "render/plugins/plugin_ids.h"
-#include "render/plugin_interface/gr_net_plugin.h"
+//#include "render/plugins/plugin_ids.h"
+//#include "render/plugin_interface/gr_net_plugin.h"
 #include "file_transmission_server/file_transmit_msg_interface.h"
 
 extern "C" {
@@ -21,53 +21,76 @@ void* GetInstance() {
 namespace tc
 {
 
-    std::string FileTransferPlugin::GetPluginId() {
-        return kNetFileTransferPluginId;
-    }
-
-    std::string FileTransferPlugin::GetPluginName() {
-        return "File Transfer";
-    }
-
-    std::string FileTransferPlugin::GetVersionName() {
-        return "1.0.2";
-    }
-
-    uint32_t FileTransferPlugin::GetVersionCode() {
-        return 102;
-    }
-
-    std::string FileTransferPlugin::GetPluginDescription() {
-        return "Full featured file transferring";
-    }
+//    std::string FileTransferPlugin::GetPluginId() {
+//        return kNetFileTransferPluginId;
+//    }
+//
+//    std::string FileTransferPlugin::GetPluginName() {
+//        return "File Transfer";
+//    }
+//
+//    std::string FileTransferPlugin::GetVersionName() {
+//        return "1.0.2";
+//    }
+//
+//    uint32_t FileTransferPlugin::GetVersionCode() {
+//        return 102;
+//    }
+//
+//    std::string FileTransferPlugin::GetPluginDescription() {
+//        return "Full featured file transferring";
+//    }
 
     void FileTransferPlugin::OnMessage(std::shared_ptr<Message> msg) {
         //LOGI("OnMessage, file transfer enabled: {}", sys_settings_.file_transfer_enabled_);
-        if (!file_trans_msg_interface_ || !sys_settings_.file_transfer_enabled_) {
+//        if (!file_trans_msg_interface_ || !sys_settings_.file_transfer_enabled_) {
+//            return;
+//        }
+
+        if (!file_trans_msg_interface_) {
             return;
         }
+
         file_trans_msg_interface_->OnMessage(msg);
     }
 
-    bool FileTransferPlugin::OnCreate(const GrPluginParam& param) {
-        if (!GrPluginInterface::OnCreate(param)) {
-            return false;
-        }
+//    bool FileTransferPlugin::OnCreate(const GrPluginParam& param) {
+//        if (!GrPluginInterface::OnCreate(param)) {
+//            return false;
+//        }
+//        file_trans_msg_interface_ = FileTransmitMsgInterface::Make(this);
+//        file_trans_msg_interface_->RegisterFileTransmitCallback();
+//
+//        // translator
+//        LOGI("Init language: {}", (int)GetCurrentLanguage());
+//        tcTrMgr()->InitLanguage(GetCurrentLanguage());
+//
+//        // test //
+//        for (int i = 0; i < 10; i++) {
+//            LOGI("GlobalId: {}", ::GenNextGlobalId());
+//        }
+//        // test //
+//
+//        return true;
+//    }
+
+    bool FileTransferPlugin::Create() {
         file_trans_msg_interface_ = FileTransmitMsgInterface::Make(this);
         file_trans_msg_interface_->RegisterFileTransmitCallback();
 
         // translator
         LOGI("Init language: {}", (int)GetCurrentLanguage());
-        tcTrMgr()->InitLanguage(GetCurrentLanguage());
+        // to do: 语言模块
+        //tcTrMgr()->InitLanguage(GetCurrentLanguage());
 
         // test //
         for (int i = 0; i < 10; i++) {
-            LOGI("GlobalId: {}", ::GenNextGlobalId());
+            //LOGI("GlobalId: {}", ::GenNextGlobalId());
         }
         // test //
-
         return true;
     }
+
 
     void FileTransferPlugin::OnSyncPluginSettingsInfo(const GrPluginSettingsInfo& settings) {
         GrPluginInterface::OnSyncPluginSettingsInfo(settings);

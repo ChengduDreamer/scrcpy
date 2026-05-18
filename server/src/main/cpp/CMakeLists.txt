@@ -46,7 +46,7 @@ add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/protobuf"
     "${CMAKE_CURRENT_BINARY_DIR}/protobuf_build")
 
 set(QTMIRROR_PROTOC_EXECUTABLE "${SC_HOST_PROTOC}")
-add_subdirectory(QtMirrorProto)
+add_subdirectory(dep_message)
 
 # Poco: only Foundation + Net (WebSocket lives in Net)
 set(POCO_MINIMAL_BUILD ON CACHE BOOL "Poco minimal" FORCE)

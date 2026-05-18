@@ -4,9 +4,6 @@
 [submodule "server/src/main/cpp/protobuf"]
 	path = server/src/main/cpp/protobuf
 	url = https://github.com/protocolbuffers/protobuf.git
-[submodule "server/src/main/cpp/QtMirrorProto"]
-	path = server/src/main/cpp/QtMirrorProto
-	url = git@github.com:ChengduDreamer/QtMirrorProto.git
 [submodule "server/src/main/cpp/deps/3rdparty/asio2"]
 	path = server/src/main/cpp/deps/3rdparty/asio2
 	url = https://github.com/zhllxt/asio2.git
@@ -16,3 +13,6 @@
 [submodule "server/src/main/cpp/deps/cpp_base_lib"]
 	path = server/src/main/cpp/deps/cpp_base_lib
 	url = git@github.com:ChengduDreamer/cpp_base_lib.git
+[submodule "server/src/main/cpp/dep_message/QtMirrorProto"]
+	path = server/src/main/cpp/dep_message/QtMirrorProto
+	url = git@github.com:ChengduDreamer/QtMirrorProto.git
