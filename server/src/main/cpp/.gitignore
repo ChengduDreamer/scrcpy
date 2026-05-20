@@ -1,0 +1,3 @@
+build_android/
+protoc_host_build/
+protobuf-host-build/
