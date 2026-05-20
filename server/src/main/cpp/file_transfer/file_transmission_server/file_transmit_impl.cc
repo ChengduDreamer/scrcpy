@@ -1,13 +1,10 @@
 #include "file_transmit_impl.h"
-#include <qdir.h>
-#include <qfile.h>
-#include <qfileinfo.h>
-#include <qstring.h>
-#include "tc_common_new/log.h"
-#include "tc_common_new/time_util.h"
-#include "tc_common_new/file.h"
-#include "tc_common_new/data.h"
-#include "tc_common_new/md5.h"
+#include <filesystem>
+#include "cpp_base_lib/yk_logger.h"
+#include "cpp_base_lib/time_util.h"
+#include "cpp_base_lib/file.h"
+#include "cpp_base_lib/data.h"
+#include "cpp_base_lib/md5.h"
 
 namespace tc {
 
@@ -24,11 +21,11 @@ namespace tc {
 			dq_.push_back(value);
 		}
 		void Pint() const {
-            LOGI("g_file_index_deque start print");
+            YK_LOGI("g_file_index_deque start print");
 			for (uint64_t index : dq_) {
-				LOGI("g_file_index_deque index: {}", index);
+				YK_LOGI("g_file_index_deque index: {}", index);
 			}
-			LOGI("g_file_index_deque end print");
+			YK_LOGI("g_file_index_deque end print");
 		}
 		void Clear() {
 			dq_.clear();
@@ -62,7 +59,7 @@ namespace tc {
 				}
 				continue;
 			}
-			auto now = tc::TimeUtil::GetCurrentTimestamp();
+			auto now = yk::TimeUtil::GetCurrentTimestamp();
 			if (now - it->second->last_update_time_ >= 14 * 1000) {
 				it->second->is_ended_ = true;
 				if (it->second->file_ptr_) {
@@ -105,13 +102,13 @@ namespace tc {
 				upload_task->src_file_path_ = src_file_path;
 				upload_task->target_file_path_ = target_file_path;
 				upload_task->current_packet_index_ = index;
-				QDir temp_path{ QString::fromStdString(target_file_path) };
-				QString temp_path_str = temp_path.absoluteFilePath("..");
-				QString path_str = QDir(temp_path_str).absolutePath();
-				QDir target_dir{path_str};
 
-				if (!target_dir.exists()) {
-					target_dir.mkpath(".");
+				namespace fs = std::filesystem;
+				fs::path target_file_path_fs(target_file_path);
+				fs::path parent_path = target_file_path_fs.parent_path();
+
+				if (!fs::exists(parent_path)) {
+					fs::create_directories(parent_path);
 				}
 
                 // report file transfer
@@ -119,13 +116,13 @@ namespace tc {
                     upload_task_created_func_(upload_task->task_id_, device_id, src_file_path, target_file_path);
                 }
 
-				if (!target_dir.exists()) {
-					LOGE("HandleUplaod error, target_dir = {} , can not be created.", target_dir.path().toStdString());
+				if (!fs::exists(parent_path)) {
+					YK_LOGE("HandleUpload error, target_dir = {} , can not be created.", parent_path.string());
 					id_with_upload_task_[task_id]->is_ended_ = true;
 					call_upload_callback(stream_id, task_id, FileUploadTask::EFileUploadState::kDirFailedCreate);
 					return;
 				}
-				upload_task->file_ptr_ = File::OpenForWriteB(target_file_path);
+				upload_task->file_ptr_ = yk::File::OpenForWriteB(target_file_path);
 				if (!id_with_upload_task_[task_id]->file_ptr_->IsOpen()) {
 					upload_task->is_ended_ = true;
 					call_upload_callback(stream_id, task_id, FileUploadTask::EFileUploadState::kFailedOpen);
@@ -136,9 +133,9 @@ namespace tc {
 				g_file_index_deque.Push(index);
 				if (index - id_with_upload_task_[task_id]->current_packet_index_ != 1) {
 					// 发生了丢包
-					LOGE("kPacketLoss file name : {}", id_with_upload_task_[task_id]->target_file_path_);
-					LOGE("index : {}", index);
-					LOGE("id_with_upload_task_[task_id]->current_packet_index_ : {}", id_with_upload_task_[task_id]->current_packet_index_);
+					YK_LOGE("kPacketLoss file name : {}", id_with_upload_task_[task_id]->target_file_path_);
+					YK_LOGE("index : {}", index);
+					YK_LOGE("id_with_upload_task_[task_id]->current_packet_index_ : {}", id_with_upload_task_[task_id]->current_packet_index_);
 					g_file_index_deque.Pint();
 					g_file_index_deque.Clear();
 					if (id_with_upload_task_[task_id]->file_ptr_) {
@@ -154,12 +151,12 @@ namespace tc {
 			if (id_with_upload_task_[task_id]->is_ended_) {
 				return;
 			}
-			id_with_upload_task_[task_id]->last_update_time_ = tc::TimeUtil::GetCurrentTimestamp();
+			id_with_upload_task_[task_id]->last_update_time_ = yk::TimeUtil::GetCurrentTimestamp();
 			if (id_with_upload_task_[task_id]->file_ptr_ && id_with_upload_task_[task_id]->file_ptr_->IsOpen()) {
 				if (!data.empty()) {
 					auto append_size = id_with_upload_task_[task_id]->file_ptr_->Append(data.data(), data.size());
 					if (append_size != data.size()) {
-						LOGE("FileTransmitImpl::HandleUplaod append_size != data.size");
+						YK_LOGE("FileTransmitImpl::HandleUpload append_size != data.size");
 						id_with_upload_task_[task_id]->file_ptr_->Close();
 						id_with_upload_task_[task_id]->is_ended_ = true;
 						call_upload_callback(stream_id, task_id, FileUploadTask::EFileUploadState::kFailedWrite);
@@ -176,10 +173,10 @@ namespace tc {
 			switch (transmit_state)
 			{
 			case tc::FileTransDataPacket::kEnd: { // 对端已经上传完毕
-                // TODO: 使用QFileInfo读取
-				QFile file{QString::fromStdString(id_with_upload_task_[task_id]->target_file_path_)};
-				auto target_file_size = file.size();
-                LOGI("FileTransDataPacket::kEnd, src size: {}, target size: {}, file: {}", src_file_size, target_file_size, file.fileName().toStdString());
+                namespace fs = std::filesystem;
+                fs::path target_file(id_with_upload_task_[task_id]->target_file_path_);
+                auto target_file_size = fs::file_size(target_file);
+                YK_LOGI("FileTransDataPacket::kEnd, src size: {}, target size: {}, file: {}", src_file_size, target_file_size, target_file.string());
 				if (src_file_size == target_file_size) { // to do 先校验下大小，后面再考虑校验md5
 					call_upload_callback(stream_id, task_id, FileUploadTask::EFileUploadState::kSuccess);
 				}
@@ -198,7 +195,7 @@ namespace tc {
 		}
 		catch (std::exception& e) {
 			std::string s = e.what();
-			LOGE("FileTransmitImpl::HandleUplaod error is {}", s);
+			YK_LOGE("FileTransmitImpl::HandleUpload error is {}", s);
 			std::lock_guard<std::mutex> lck{ id_with_upload_task_mutex_ };
 			if (id_with_upload_task_.count(task_id) > 0) {
 				if (id_with_upload_task_[task_id]->file_ptr_) {
@@ -214,7 +211,7 @@ namespace tc {
 
 	void FileTransmitImpl::call_upload_callback(const std::string& stream_id, const std::string& task_id, FileUploadTask::EFileUploadState state) {
 		if (!upload_resp_func_) {
-			LOGE("FileTransmitImpl upload_callback_ is null.");
+			YK_LOGE("FileTransmitImpl upload_callback_ is null.");
 			return;
 		}
 		auto resp_upload = new tc::FileTransRespUpload();
@@ -278,18 +275,24 @@ namespace tc {
 		try {
 			const std::size_t buffer_size = kSingleBufferSize;
 			char buffer[buffer_size] = { 0, };
-			QString download_path_qstr = QString::fromStdString(download_path);
-			QFile file{ download_path_qstr };
-			if (!file.exists()) {
-				LOGD("File no exists %s error", download_path.c_str());
-				call_download_callback(device_id, stream_id, task_id, tc::FileDownloadTask::EFileDownloadState::kNoExists);
-				return;
-			}
-			uint64_t file_size = file.size();
-			std::wstring download_pathw = download_path_qstr.toStdWString();
-			FILE* pf = _wfopen(download_pathw.c_str(), L"rb");
+
+            namespace fs = std::filesystem;
+            fs::path download_path_fs(download_path);
+            if (!fs::exists(download_path_fs)) {
+                YK_LOGD("File no exists {} error", download_path);
+                call_download_callback(device_id, stream_id, task_id, tc::FileDownloadTask::EFileDownloadState::kNoExists);
+                return;
+            }
+            uint64_t file_size = fs::file_size(download_path_fs);
+
+#ifdef _WIN32
+            std::wstring wpath = download_path_fs.wstring();
+            FILE* pf = _wfopen(wpath.c_str(), L"rb");
+#else
+            FILE* pf = fopen(download_path.c_str(), "rb");
+#endif
 			if (!pf) {
-				LOGE("File open %s error", download_path.c_str());
+				YK_LOGE("File open {} error", download_path);
 				call_download_callback(device_id, stream_id, task_id, tc::FileDownloadTask::EFileDownloadState::kFailedOpen);
 				return;
 			}
@@ -351,7 +354,7 @@ namespace tc {
 						{
 							std::unique_lock<std::mutex> lck{ grant_token_mutex_ };
 							if (task_id_with_recved_index_.count(task_id)) {
-								LOGW("index - task_id_with_recved_index_[task_id] = {}", index - task_id_with_recved_index_[task_id]);
+								YK_LOGW("index - task_id_with_recved_index_[task_id] = {}", index - task_id_with_recved_index_[task_id]);
 								if (index - task_id_with_recved_index_[task_id] >= 180) {
 									need_wait = true;
 								}
@@ -379,13 +382,13 @@ namespace tc {
 						return;
 					}
 					if (!send_data_packet_func_) {
-						LOGI("HandleFileoperateMsg send_data_packet_callback_ is nullptr.");
+						YK_LOGI("HandleFileoperateMsg send_data_packet_callback_ is nullptr.");
 						is_abort = true;
 						return;
 					}
 					if (!send_data_packet_func_(stream_id, msg)) {
 						is_abort = true;
-						LOGE("HandleDownload send msg time out.");
+						YK_LOGE("HandleDownload send msg time out.");
 						return;
 					}
 					--token_bucket_;
@@ -395,7 +398,7 @@ namespace tc {
 					std::lock_guard<std::mutex> lck{ file_transmit_mutex_ };
 					if (EFileTransmitTaskSimpleState::kNormal != file_transmit_task_with_simple_state_[task_id]) {
 						is_send_msg = false;
-						LOGW(" FileTransmitImpl::HandleDownload cancel or error, download_path = {}", download_path.c_str());
+						YK_LOGW(" FileTransmitImpl::HandleDownload cancel or error, download_path = {}", download_path.c_str());
 						return;
 					}
 				}
@@ -404,7 +407,7 @@ namespace tc {
 					statistics_readed_size += readed_size;
 					file_data_packet->set_data(buffer, readed_size);
 					if (feof(pf)) { // 文件结束
-                        LOGI("File at end: {}, total bytes: {}", download_path_qstr.toStdString(), statistics_readed_size);
+                        YK_LOGI("File at end: {}, total bytes: {}", download_path, statistics_readed_size);
 						file_data_packet->set_transmit_state(tc::FileTransDataPacket::kEnd);
 
                         // 下载正常结束
@@ -420,7 +423,7 @@ namespace tc {
 				}
 				else {
 					if (feof(pf)) {
-                        LOGI("File at end: {}, total bytes: {}", download_path_qstr.toStdString(), statistics_readed_size);
+                        YK_LOGI("File at end: {}, total bytes: {}", download_path, statistics_readed_size);
 						file_data_packet->set_transmit_state(tc::FileTransDataPacket::kEnd);
 
                         // 下载正常结束
@@ -430,7 +433,7 @@ namespace tc {
 					}
 					else {
 						file_data_packet->set_transmit_state(tc::FileTransDataPacket::kError);
-						LOGE("File read %s error", download_path.c_str());
+						YK_LOGE("File read {} error", download_path.c_str());
 						return;
 					}
 					break;
@@ -439,7 +442,7 @@ namespace tc {
 		}
 		catch (std::exception& e) {
 			std::string s = e.what();
-			LOGE("FileTransmitImpl::HandleDownload error is {}.", s);
+			YK_LOGE("FileTransmitImpl::HandleDownload error is {}.", s);
 		}
 	}
 
@@ -448,29 +451,29 @@ namespace tc {
 		auto src_file_path = save_exception.src_file_path();
 		auto target_file_path = save_exception.target_file_path();
 		auto task_id = save_exception.task_id();
-		LOGD("HandleSaveFileException task_id is {}, src_file_path is {}, target_file_path is {}, error is ", task_id, src_file_path, target_file_path);
+		YK_LOGD("HandleSaveFileException task_id is {}, src_file_path is {}, target_file_path is {}, error is ", task_id, src_file_path, target_file_path);
 		switch (error_cause)
 		{
 		case tc::FileTransSaveFileException::kFailedOpen:
-			LOGD("FileTransSaveFileException::kFailedOpen");
+			YK_LOGD("FileTransSaveFileException::kFailedOpen");
 			break;
 		case tc::FileTransSaveFileException::kFailedWrite:
-			LOGD("FileTransSaveFileException::kFailedWrite");
+			YK_LOGD("FileTransSaveFileException::kFailedWrite");
 			break;
 		case tc::FileTransSaveFileException::kCancel:
-			LOGD("FileTransSaveFileException::kCancel");
+			YK_LOGD("FileTransSaveFileException::kCancel");
 			break;
 		case tc::FileTransSaveFileException::kDirFailedCreate:
-			LOGD("FileTransSaveFileException::kDirFailedCreate");
+			YK_LOGD("FileTransSaveFileException::kDirFailedCreate");
 			break;
 		case tc::FileTransSaveFileException::kPacketLoss:
-			LOGD("FileTransSaveFileException::kPacketLoss");
+			YK_LOGD("FileTransSaveFileException::kPacketLoss");
 			break;
 		case tc::FileTransSaveFileException::kUnknow:
-			LOGD("FileTransSaveFileException::kUnknow");
+			YK_LOGD("FileTransSaveFileException::kUnknow");
 			break;
 		default:
-			LOGD("HandleSaveFileException unknow");
+			YK_LOGD("HandleSaveFileException unknow");
 			break;
 		}
 		{
@@ -490,7 +493,7 @@ namespace tc {
 		uint64_t recved_index = data_packet_resp.index();
 		std::string task_id = data_packet_resp.task_id();
 		std::unique_lock<std::mutex> lck{ grant_token_mutex_ };
-		LOGI("FileTransmitImpl::HandleFileTransDataPacketResponse 0");
+		YK_LOGI("FileTransmitImpl::HandleFileTransDataPacketResponse 0");
 		task_id_with_recved_index_[task_id] = recved_index;
 		grant_token_cv_.notify_all();
 	}
@@ -514,7 +517,7 @@ namespace tc {
 		if (speed_by_MB_per_100ms_ > kMaxSpeedByMBPer100ms) {
 			speed_by_MB_per_100ms_ = kMaxSpeedByMBPer100ms;
 		}
-		LOGI("speed_by_MB_per_100ms_ is {}", speed_by_MB_per_100ms_);
+		YK_LOGI("speed_by_MB_per_100ms_ is {}", speed_by_MB_per_100ms_);
 	}
 
 	uint64_t FileTransmitImpl::GetMaxSpeedBybitPerSecond() {

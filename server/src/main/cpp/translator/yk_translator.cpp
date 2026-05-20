@@ -1,21 +1,25 @@
 ﻿#include "yk_translator.h"
-#include <QFile>
-#include <QIODevice>
-#include <QDebug>
-#include <QLocale>
-#include <QApplication>
-#include <QEvent>
 #include <iostream>
-#include "NlohmannJson/json.hpp"
 #include "cpp_base_lib/yk_logger.h"
+
+#ifdef __ANDROID__
+    #include <fstream>
+    #include "NlohmannJson/json.hpp"
+#else
+    #include <QFile>
+    #include <QIODevice>
+    #include <QDebug>
+    #include <QLocale>
+    #include <QApplication>
+    #include <QEvent>
+    #include "NlohmannJson/json.hpp"
+#endif
 
 using namespace nlohmann;
 
-namespace yk
-{
+namespace yk {
 
-    const std::string kUsingLanguage = "using_language";
-
+#ifndef __ANDROID__
     YKTranslator::YKTranslator(QObject *self_, TranslateUIType type) {
         this->self_ = self_;
         this->type_ = type;
@@ -47,28 +51,67 @@ namespace yk
     }
 
     void YKTranslator::OnTranslate(LanguageKind kind) {
-        
     }
+#endif
 
     void YKTranslatorManager::InitLanguage(LanguageKind kind) {
+#ifdef __ANDROID__
+        YK_LOGI("InitLanguage: {}", static_cast<int>(kind));
+        this->LoadLanguage(kind);
+#else
         auto sys_name = QLocale::system().bcp47Name();
         YK_LOGI("system.bcp47 name: {}", sys_name.toStdString());
-//      sys_name = QLocale(QLocale::Chinese, QLocale::China).bcp47Name();    // zh
-//      YK_LOGI("system.bcp47 name: {}", sys_name.toStdString());
-//      sys_name = QLocale(QLocale::Chinese, QLocale::Taiwan).bcp47Name();   // zh-TW
-//      YK_LOGI("system.bcp47 name: {}", sys_name.toStdString());
-//      sys_name = QLocale(QLocale::Chinese, QLocale::HongKong).bcp47Name();   // zh-HK
-//      YK_LOGI("system.bcp47 name: {}", sys_name.toStdString());
-//      sys_name = QLocale(QLocale::Chinese, QLocale::Macao).bcp47Name();   // zh-MO
-//      YK_LOGI("system.bcp47 name: {}", sys_name.toStdString());
-//      sys_name = QLocale(QLocale::English, QLocale::UnitedStates).bcp47Name(); // en
-//      YK_LOGI("system.bcp47 name: {}", sys_name.toStdString());
-//      sys_name =  QLocale(QLocale::Japanese, QLocale::Japan).bcp47Name();   // ja
-//      YK_LOGI("system.bcp47 name: {}", sys_name.toStdString());
         LanguageKind target_kind = kind;
         this->LoadLanguage((LanguageKind)target_kind);
+#endif
     }
 
+#ifdef __ANDROID__
+    bool YKTranslatorManager::LoadLanguage(LanguageKind kind) {
+        std::string path;
+        if (kind == LanguageKind::kSimpleCN) {
+            path = "simple_cn.json";
+        } else if (kind == LanguageKind::kTraditionalCN) {
+            path = "traditional_cn.json";
+        } else {
+            path = "english.json";
+        }
+        this->kind_ = kind;
+        return LoadLanguage(path);
+    }
+
+    bool YKTranslatorManager::LoadLanguage(const std::string &path) {
+        YK_LOGI("Load language at: {}", path);
+        if (path.empty()) {
+            return false;
+        }
+        std::ifstream file(path);
+        if (!file.is_open()) {
+            YK_LOGI("Open: {} failed", path);
+            return false;
+        }
+        try {
+            std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+            auto parsed_content = json::parse(content);
+            contents_.clear();
+            for (json::iterator it = parsed_content.begin(); it != parsed_content.end(); it++) {
+                contents_[it.key()] = it.value().get<std::string>();
+            }
+            return true;
+        }
+        catch (json::exception &e) {
+            YK_LOGE("Parse language file error: {}", e.what());
+        }
+        return false;
+    }
+
+    std::string YKTranslatorManager::GetTrString(const std::string &id) {
+        if (contents_.find(id) != contents_.end()) {
+            return contents_[id];
+        }
+        return id;
+    }
+#else
     bool YKTranslatorManager::LoadLanguage(LanguageKind kind) {
         QString path;
         if (kind == LanguageKind::kSimpleCN) {
@@ -104,7 +147,6 @@ namespace yk
             contents_.clear();
             for (json::iterator it = parsed_content.begin(); it != parsed_content.end(); it++) {
                 contents_[it.key().c_str()] = it.value().get<std::string>().c_str();
-                //YK_LOGI("{} => {}", it.key(), it.value());
             }
             return true;
         }
@@ -141,16 +183,17 @@ namespace yk
         }
     }
 
-    LanguageKind YKTranslatorManager::GetSelectedLanguage() { 
-        return this->kind_;
-    }
-
     void YKTranslatorManager::NotifyLanguageChange() {
         QEvent event(QEvent::LanguageChange);
         const auto widgets = QApplication::allWidgets();
         for (QWidget* w : widgets) {
             QCoreApplication::sendEvent(w, &event);
         }
+    }
+#endif
+
+    LanguageKind YKTranslatorManager::GetSelectedLanguage() {
+        return this->kind_;
     }
 
 }

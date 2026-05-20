@@ -1,17 +1,14 @@
-//
-// Created RGAA on 15/11/2024.
-//
-
 #include "file_transfer_plugin.h"
-#include "tc_message.pb.h"
-#include "tc_common_new/log.h"
+#include "mirror_message.pb.h"
+#include "cpp_base_lib/yk_logger.h"
+//#include "tc_common_new/log.h"
 //#include "render/plugins/plugin_ids.h"
 //#include "render/plugin_interface/gr_net_plugin.h"
 #include "file_transmission_server/file_transmit_msg_interface.h"
 
-extern "C" {
-    __declspec(dllimport) uint64_t GenNextGlobalId();
-}
+//extern "C" {
+//    __declspec(dllimport) uint64_t GenNextGlobalId();
+//}
 
 void* GetInstance() {
     static tc::FileTransferPlugin plugin;
@@ -79,7 +76,7 @@ namespace tc
         file_trans_msg_interface_->RegisterFileTransmitCallback();
 
         // translator
-        LOGI("Init language: {}", (int)GetCurrentLanguage());
+        //LOGI("Init language: {}", (int)GetCurrentLanguage());
         // to do: 语言模块
         //tcTrMgr()->InitLanguage(GetCurrentLanguage());
 
@@ -92,8 +89,8 @@ namespace tc
     }
 
 
-    void FileTransferPlugin::OnSyncPluginSettingsInfo(const GrPluginSettingsInfo& settings) {
-        GrPluginInterface::OnSyncPluginSettingsInfo(settings);
+    void FileTransferPlugin::OnSyncPluginSettingsInfo(const FileTransferPluginSettings& settings) {
+        //GrPluginInterface::OnSyncPluginSettingsInfo(settings);
         //LOGI("Max transmit speed: {}, Max receive speed: {}", settings.max_transmit_speed_, settings.max_receive_speed_);
         if (!file_trans_msg_interface_) {
             return;
@@ -103,8 +100,15 @@ namespace tc
         }
     }
 
-    LanguageKind FileTransferPlugin::GetCurrentLanguage() {
-        return (LanguageKind)sys_settings_.language_;
+//    LanguageKind FileTransferPlugin::GetCurrentLanguage() {
+//        return (LanguageKind)sys_settings_.language_;
+//    }
+
+
+
+    void FileTransferPlugin::SendProtoMessage(std::string stream_id, std::shared_ptr<Message> msg) {
+        // to do: 发送消息给客户端
+
     }
 
 }

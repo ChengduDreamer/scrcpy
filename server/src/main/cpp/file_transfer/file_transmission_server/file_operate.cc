@@ -5,522 +5,351 @@
 #include <Knownfolders.h>
 #include <shlobj_core.h>
 #include <wtsapi32.h>
-#endif // WIN32
-#include <qfile.h>
-#include <qfileinfo.h>
-#include <qdir.h>
-#include <qlist.h>
-#include <qstorageinfo.h>
-#include <qstandardpaths.h>
-#include "tc_message.pb.h"
-#include "tc_common_new/string_util.h"
-#include "tc_common_new/log.h"
-#include "tc_common_new/process_util.h"
-#include "tc_label.h"
-
-#ifdef WIN32
 #pragma comment(lib, "Wtsapi32.lib")
-#endif // WIN32
+#endif
+
+#include <filesystem>
+#include <sys/stat.h>
+#include <chrono>
+#include "cpp_base_lib/yk_logger.h"
+#include "mirror_message.pb.h"
 
 namespace tc {
-	//暂时不限制访问路径
 	static std::string s_file_permission_path_ = "/";
 
 	FileOperate::FileOperate() {}
 
 	std::vector<tc::FileDescInfo> FileOperate::GetFilesListImpl(const std::string& path) {
+		namespace fs = std::filesystem;
 		std::vector<tc::FileDescInfo> file_infos;
-		QDir dir{QString::fromStdString(path)};
-		QFileInfoList fileInfoList = dir.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
-		for (const QFileInfo& fileInfo : fileInfoList) {
+		fs::path dir_path(path);
+
+		if (!fs::exists(dir_path) || !fs::is_directory(dir_path)) {
+			return file_infos;
+		}
+
+		for (const auto& entry : fs::directory_iterator(dir_path)) {
 			tc::FileDescInfo info;
-			info.set_name(fileInfo.fileName().toStdString());
-			info.set_path(fileInfo.absoluteFilePath().toStdString());
-			if (fileInfo.isDir()) {
+			const fs::path& p = entry.path();
+			info.set_name(p.filename().string());
+			info.set_path(fs::absolute(p).string());
+
+			struct stat st{};
+			if (stat(info.path().c_str(), &st) != 0) {
+				continue;
+			}
+
+			if (entry.is_directory()) {
 				info.set_type(tc::FileDescInfo::kFolder);
-				if (desktop_path_ == fileInfo.absoluteFilePath().toStdString()) {
+				if (!desktop_path_.empty() && info.path() == desktop_path_) {
 					info.set_type(tc::FileDescInfo::kDeskFolder);
 				}
 			}
-			else if (fileInfo.isFile()) {
-				info.set_type(tc::FileDescInfo::FileType::FileDescInfo_FileType_kFile);
-				info.set_size(fileInfo.size());
-				info.set_date(fileInfo.lastModified().toSecsSinceEpoch());
+			else if (entry.is_regular_file()) {
+				info.set_type(tc::FileDescInfo::kFile);
+				info.set_size(static_cast<uint64_t>(st.st_size));
+				info.set_date(static_cast<uint64_t>(st.st_mtim.tv_sec));
 			}
 			else {
-				LOGI("Other is {}", fileInfo.absoluteFilePath().toStdString());
 				continue;
 			}
-			file_infos.emplace_back(info);
+			file_infos.emplace_back(std::move(info));
 		}
 		return file_infos;
 	}
 
 	std::tuple<bool, std::vector<tc::FileDescInfo>, std::string, std::string> FileOperate::GetFilesList(std::string path) {
-		// to do: At present, only the Windows system is being considered, and compatibility with Linux will be achieved later
-#ifdef WIN32
 		try {
 			std::string permission_log;
-			bool permission = true;
-			path = StringUtil::StandardizeWinPath(path);
-			//Determine if it is within the scope of access permissions, "/" indicates all permissions
-			do {
-				if ("/" != s_file_permission_path_) {
-					QFileInfo visitFileInfo(QFileInfo(QString::fromStdString(path)).canonicalFilePath());
-					QFileInfo filePermissionFileInfo(QFileInfo(QString::fromStdString(s_file_permission_path_)).canonicalFilePath());
-					if (visitFileInfo == filePermissionFileInfo) {
-						break;
-					}
-					QString visit_path_str = visitFileInfo.absolutePath();
-					QString permission_path_str = visitFileInfo.absolutePath();
-					if (visit_path_str.startsWith(permission_path_str, Qt::CaseInsensitive)) {
-						permission = false;
-						break;
-					}
-				}
-			} while (0);
+			namespace fs = std::filesystem;
+			fs::path visit_path(path);
 
-			if (!permission) {
-				permission_log = "The accessed path is not authorized and has been switched to an authorized path The authorization path is:" + s_file_permission_path_;
-				path = s_file_permission_path_;
+			if (!fs::exists(visit_path)) {
+				return { false, {}, permission_log + "The accessed directory no longer exists", s_file_permission_path_ };
 			}
-			if (root_path_ == path) { // 此电脑
-				return { true, GetThisPCFiles(), "", s_file_permission_path_};
-			}
-			QString path_qstr = QString::fromStdString(path);
-			QFileInfo visit_file_info{ path_qstr };
-			if (!visit_file_info.exists()) {
-				return { false, {}, permission_log + QStringLiteral("The accessed directory no longer exists").toStdString(), s_file_permission_path_};
+			if (!fs::is_directory(visit_path)) {
+				return { false, {}, permission_log + "The accessed path is not a valid folder or disk directory", s_file_permission_path_ };
 			}
 
-			if (!visit_file_info.isDir()) {
-				return { false, {}, permission_log + QStringLiteral("The accessed path is not a valid folder or disk directory").toStdString(), s_file_permission_path_};
+			if (root_path_ == path) {
+				std::vector<tc::FileDescInfo> file_infos = GetFilesListImpl(path);
+				return { true, std::move(file_infos), permission_log, s_file_permission_path_ };
 			}
+
 			std::vector<tc::FileDescInfo> file_infos = GetFilesListImpl(path);
-			return { true, file_infos, permission_log, s_file_permission_path_ };
+			return { true, std::move(file_infos), permission_log, s_file_permission_path_ };
 		}
 		catch (std::exception& e) {
-			std::string s = e.what();
-			LOGE("GetFilesList path is {}, error is {}", path, s);
-			return { false, {}, s, s_file_permission_path_ };
+			YK_LOGE("GetFilesList path is {}, error is {}", path, e.what());
+			return { false, {}, e.what(), s_file_permission_path_ };
 		}
-#else
-		return { false, {}, QStringLiteral("linux file trans unsupport"), ""};
-#endif // WIN32
 	}
 
 	std::tuple<bool, std::vector<tc::FileDescInfo>, std::string, std::string> FileOperate::RecursiveGetFilesList(std::string path) {
-		// to do: At present, only the Windows system is being considered, and compatibility with Linux will be achieved later
-#ifdef WIN32
 		try {
 			std::string permission_log;
-			bool permission = true;
-			path = StringUtil::StandardizeWinPath(path);
-			//Determine if it is within the scope of access permissions, "/" indicates all permissions
-			do {
-				if ("/" != s_file_permission_path_) {
-					QFileInfo visitFileInfo(QFileInfo(QString::fromStdString(path)).canonicalFilePath());
-					QFileInfo filePermissionFileInfo(QFileInfo(QString::fromStdString(s_file_permission_path_)).canonicalFilePath());
-					if (visitFileInfo == filePermissionFileInfo) {
-						break;
-					}
-					QString visit_path_str = visitFileInfo.absolutePath();
-					QString permission_path_str = visitFileInfo.absolutePath();
-					if (visit_path_str.startsWith(permission_path_str, Qt::CaseInsensitive)) {
-						permission = false;
-						break;
-					}
-				}
-			} while (0);
+			namespace fs = std::filesystem;
+			std::error_code ec;
+			fs::path visit_path(path);
 
-			if (!permission) {
-				permission_log = "The accessed path is not authorized and has been switched to an authorized path The authorization path is:" + s_file_permission_path_;
-				path = s_file_permission_path_;
+			if (!fs::exists(visit_path, ec)) {
+				return { false, {}, permission_log + "The accessed directory no longer exists", s_file_permission_path_ };
+			}
+			if (!fs::is_directory(visit_path, ec)) {
+				return { false, {}, permission_log + "The accessed path is not a valid folder or disk directory", s_file_permission_path_ };
 			}
 
-			if (root_path_ == path) { // 此电脑
-				return { true, GetThisPCFiles(), "", s_file_permission_path_ };
+			if (root_path_ == path) {
+				std::vector<tc::FileDescInfo> file_infos = GetFilesListImpl(path);
+				return { true, std::move(file_infos), permission_log, s_file_permission_path_ };
 			}
 
-			QString path_qstr = QString::fromStdString(path);
-			QFileInfo visit_file_info{ path_qstr };
-			if (!visit_file_info.exists()) {
-				return { false, {}, permission_log + QStringLiteral("The accessed directory no longer exists").toStdString(), s_file_permission_path_ };
-			}
-
-			if (!visit_file_info.isDir()) {
-				return { false, {}, permission_log + QStringLiteral("The accessed path is not a valid folder or disk directory").toStdString(), s_file_permission_path_ };
-			}
-			
-			std::vector<QString> folders;
-			std::vector<QString> files;
-			TraverseDirectory(QString::fromStdString(path), folders, files);
+			std::vector<std::string> folders;
+			std::vector<std::string> files;
+			TraverseDirectory(path, folders, files);
 			std::vector<tc::FileDescInfo> file_infos;
-			for (auto & folder : folders) {
-				QFileInfo file_info{ folder };
+			file_infos.reserve(folders.size() + files.size());
+
+			for (const auto& folder : folders) {
+				fs::path p(folder);
 				tc::FileDescInfo info;
 				info.set_type(tc::FileDescInfo::kFolder);
-				info.set_name(file_info.fileName().toStdString());
-				info.set_path(file_info.absoluteFilePath().toStdString());
-				file_infos.emplace_back(info);
+				info.set_name(p.filename().string());
+				info.set_path(fs::absolute(p, ec).string());
+				info.set_size(0);
+				info.set_date(0);
+				file_infos.emplace_back(std::move(info));
 			}
 
-			for (auto& file : files) {
-				QFileInfo file_info{ file };
+			for (const auto& file : files) {
+				fs::path p(file);
 				tc::FileDescInfo info;
 				info.set_type(tc::FileDescInfo::kFile);
-				info.set_name(file_info.fileName().toStdString());
-				info.set_path(file_info.absoluteFilePath().toStdString());
-				info.set_size(file_info.size());
-				info.set_date(file_info.lastModified().toSecsSinceEpoch());
-				file_infos.emplace_back(info);
-			}
-			return { true, file_infos, "", s_file_permission_path_ };
-		}
-		catch (std::exception& e) {
-			std::string s = e.what();
-			LOGE("GetFilesList path is {}, error is {}", path, s);
-			return { false, {}, s, s_file_permission_path_ };
-		}
-#else
-		return { false, {}, QStringLiteral("linux file trans unsupport"), "" };
-#endif // WIN32
-	}
-
-
-	void FileOperate::TraverseDirectory(const QString& path, std::vector<QString>& folders, std::vector<QString>& files) {
-		QDir directory(path);
-		// 遍历当前目录下的所有项
-		QStringList items = directory.entryList(QDir::NoDotAndDotDot | QDir::Files | QDir::Dirs | QDir::Hidden | QDir::NoSymLinks, QDir::DirsFirst);
-		foreach(QString item, items) {
-			QString itemPath = directory.filePath(item);
-
-			QFileInfo fileInfo(itemPath);
-
-			if (fileInfo.isDir()) {
-				// 如果是文件夹，则递归遍历，并将路径存储到文件夹向量中
-				folders.push_back(fileInfo.absoluteFilePath());
-				TraverseDirectory(itemPath, folders, files);
-			}
-			else {
-				// 如果是文件，则将路径存储到文件向量中
-				files.push_back(fileInfo.absoluteFilePath());
-			}
-		}
-	}
-
-	std::vector<tc::FileDescInfo> FileOperate::GetThisPCFiles() {
-#ifdef WIN32
-		try {
-			// 通过获取用户token 可以获取当前用户下的 各种目录，不然获取的就是 system32用户的目录   // to do 未登录状态下,要不要展示出system用户的目录，有待商榷
-			bool impersonate = false;
-			bool query_token = false;
-			HANDLE hToken = nullptr;  
-			// 获取活动控制台会话的会话 ID 
-			// ImpersonateLoggedOnUser 函数允许调用线程模拟登录用户的安全上下文。 用户由令牌句柄表示。
-			DWORD dwSessionId = ProcessUtil::GetCurrentSessionId();
-			// 获取指定会话 ID 的用户令牌
-			if (WTSQueryUserToken(dwSessionId, &hToken)) {
-				// 动态提升权限
-				if (ImpersonateLoggedOnUser(hToken)) {
-					// 在此处执行以用户权限进行的操作
-					impersonate = true;
+				info.set_name(p.filename().string());
+				info.set_path(fs::absolute(p, ec).string());
+				info.set_size(fs::file_size(p, ec));
+				auto ftime = fs::last_write_time(p, ec);
+				if (!ec) {
+					auto secs = std::chrono::time_point_cast<std::chrono::seconds>(ftime).time_since_epoch().count();
+					info.set_date(static_cast<uint64_t>(secs));
 				}
-				else {
-					LOGE("Failed to impersonate user. Error code: %d ", GetLastError());
-				}
-				query_token = true;
+				file_infos.emplace_back(std::move(info));
 			}
-			else {
-				LOGE("Failed to get user token. Error code: %d", GetLastError());
-			}
-
-			std::vector<tc::FileDescInfo> file_infos;
-			// 获取系统中的磁盘列表
-			QList<QStorageInfo> drives = QStorageInfo::mountedVolumes();
-
-			// 遍历磁盘列表
-			for (const QStorageInfo& drive : drives) {
-				qDebug() << "Root path:" << drive.rootPath(); // C:/
-				tc::FileDescInfo info;
-				std::string name = drive.rootPath().toStdString();
-				info.set_name(name);
-				info.set_path(name);
-				info.set_type(tc::FileDescInfo::kDisk);
-				file_infos.emplace_back(info);
-			}
-
-#if 1       //使用QT获取桌面等路径 
-			// 获取桌面路径
-			tc::FileDescInfo desktop_info;
-			//desktop_info.set_name(QStringLiteral("桌面").toStdString());
-			desktop_info.set_name(tcTr("id_file_trans_desktop").toStdString());
-			desktop_info.set_path(QStandardPaths::writableLocation(QStandardPaths::DesktopLocation).toStdString());
-			desktop_info.set_type(tc::FileDescInfo::kDeskFolder);
-			file_infos.emplace_back(desktop_info);
-			
-			// 获取我的文档路径
-			tc::FileDescInfo doc_info;
-			doc_info.set_name(tcTr("id_file_trans_my_document").toStdString());
-			doc_info.set_path(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation).toStdString());
-			doc_info.set_type(tc::FileDescInfo::kFolder);
-			file_infos.emplace_back(doc_info);
-
-			// 获取我的音乐路径
-			tc::FileDescInfo music_info;
-			music_info.set_name(tcTr("id_file_trans_my_music").toStdString());
-			music_info.set_path(QStandardPaths::writableLocation(QStandardPaths::MusicLocation).toStdString());
-			music_info.set_type(tc::FileDescInfo::kFolder);
-			file_infos.emplace_back(music_info);
-
-			// 获取我的图片路径
-			tc::FileDescInfo pic_info;
-			pic_info.set_name(tcTr("id_file_trans_my_picture").toStdString());
-			pic_info.set_path(QStandardPaths::writableLocation(QStandardPaths::PicturesLocation).toStdString());
-			pic_info.set_type(tc::FileDescInfo::kFolder);
-			file_infos.emplace_back(pic_info);
-
-			// 获取我的视频路径
-			tc::FileDescInfo mov_info;
-			mov_info.set_name(tcTr("id_file_trans_my_video").toStdString());
-			mov_info.set_path(QStandardPaths::writableLocation(QStandardPaths::MoviesLocation).toStdString());
-			mov_info.set_type(tc::FileDescInfo::kFolder);
-			file_infos.emplace_back(mov_info);
-#endif
-#if 0       // 使用win32API 获取
-			// 获取桌面路径   
-			PWSTR desktopPath = nullptr;
-			HRESULT result = SHGetKnownFolderPath(FOLDERID_Desktop, KF_FLAG_DEFAULT, nullptr, &desktopPath);
-			if (SUCCEEDED(result)) {
-				std::wstring path_wstr = desktopPath;
-				CoTaskMemFree(desktopPath);
-				tc::FileDescInfo desktop_info;
-				desktop_info.set_name(QStringLiteral("桌面").toStdString());
-				desktop_info.set_path(QString::fromStdWString(path_wstr).toStdString());
-				desktop_info.set_type(tc::FileDescInfo::kDeskFolder);
-				file_infos.emplace_back(desktop_info);
-			}
-			else {
-				DWORD errorCode = HRESULT_CODE(result);
-				auto str = StringUtil::GetErrorStr(errorCode);
-				LOGE("SHGetKnownFolderPath GetErrorStr = %s\n", str.c_str());
-			}
-
-			// 获取我的文档路径
-			PWSTR documentsPath = nullptr;
-			if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, KF_FLAG_DEFAULT, nullptr, &documentsPath))) {
-				std::wstring path_wstr = documentsPath;
-				CoTaskMemFree(documentsPath);
-				tc::FileDescInfo doc_info;
-				doc_info.set_name(QStringLiteral("我的文档").toStdString());
-				doc_info.set_path(QString::fromStdWString(path_wstr).toStdString());
-				doc_info.set_type(tc::FileDescInfo::kFolder);
-				file_infos.emplace_back(doc_info);
-			}
-
-			// 获取我的视频路径
-			PWSTR videosPath = nullptr;
-			if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Videos, KF_FLAG_DEFAULT, nullptr, &videosPath))) {
-				std::wstring path_wstr = videosPath;
-				CoTaskMemFree(videosPath);
-				tc::FileDescInfo mov_info;
-				mov_info.set_name(QStringLiteral("我的视频").toStdString());
-				mov_info.set_path(QString::fromStdWString(path_wstr).toStdString());
-				mov_info.set_type(tc::FileDescInfo::kFolder);
-				file_infos.emplace_back(mov_info);
-			}
-
-			// 获取我的音乐路径
-			PWSTR musicPath = nullptr;
-			if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Music, KF_FLAG_DEFAULT, nullptr, &musicPath))) {
-				std::wstring path_wstr = musicPath;
-				CoTaskMemFree(musicPath);
-				tc::FileDescInfo music_info;
-				music_info.set_name(QStringLiteral("我的音乐").toStdString());
-				music_info.set_path(QString::fromStdWString(path_wstr).toStdString());
-				music_info.set_type(tc::FileDescInfo::kFolder);
-				file_infos.emplace_back(music_info);
-			}
-
-			// 获取我的图片路径
-			PWSTR picturesPath = nullptr;
-			if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Pictures, KF_FLAG_DEFAULT, nullptr, &picturesPath))) {
-				std::wstring path_wstr = picturesPath;
-				CoTaskMemFree(picturesPath);
-				tc::FileDescInfo pic_info;
-				pic_info.set_name(QStringLiteral("我的图片").toStdString());
-				pic_info.set_path(QString::fromStdWString(path_wstr).toStdString());
-				pic_info.set_type(tc::FileDescInfo::kFolder);
-				file_infos.emplace_back(pic_info);
-			}
-#endif
-
-			if (impersonate) { // 恢复原始身份
-				RevertToSelf();
-			}
-			if (query_token) { // 关闭用户令牌句柄
-				CloseHandle(hToken);
-			}
-
-			return file_infos;
+			return { true, std::move(file_infos), "", s_file_permission_path_ };
 		}
-		catch (std::exception& e) {
-			std::string s = e.what();
-			LOGE("FileOperate::GetThisPCFiles error is {}.", s);
-			return {};
+		catch (const std::exception& e) {
+			YK_LOGE("RecursiveGetFilesList path is {}, error is {}", path, e.what());
+			return { false, {}, e.what(), s_file_permission_path_ };
 		}
-#else
-		return {};
-#endif
 	}
+
+	void FileOperate::TraverseDirectory(const std::string& path, std::vector<std::string>& folders, std::vector<std::string>& files) {
+		namespace fs = std::filesystem;
+		std::error_code ec;
+
+		for (const auto& entry : fs::directory_iterator(path, fs::directory_options::skip_permission_denied, ec)) {
+			if (ec) continue;
+			if (entry.is_symlink(ec)) continue;
+
+			fs::path abs_path = fs::absolute(entry.path(), ec);
+			if (ec) continue;
+
+			if (entry.is_directory(ec)) {
+				folders.emplace_back(abs_path.string());
+				TraverseDirectory(abs_path.string(), folders, files);
+			}
+			else if (entry.is_regular_file(ec)) {
+				files.emplace_back(abs_path.string());
+			}
+		}
+	}
+
 	std::tuple<bool, std::string> FileOperate::CreateFolder(std::string folder_path) {
 		bool ret = true;
-		std::string er_msg;
+		std::string err_msg;
 		try {
-			QDir target_dir{QString::fromStdString(folder_path)};
-			if (!target_dir.exists()) {
-				target_dir.mkpath(".");
+			namespace fs = std::filesystem;
+			std::error_code ec;
+			fs::path target_path(folder_path);
+
+			if (!fs::exists(target_path, ec)) {
+				if (!fs::create_directories(target_path, ec)) {
+					ret = false;
+					err_msg = "Failed to create directory: " + folder_path;
+				}
 			}
-			if (!target_dir.exists()) {
+
+			if (!fs::exists(target_path, ec)) {
 				ret = false;
+				if (err_msg.empty()) {
+					err_msg = "Directory does not exist after creation: " + folder_path;
+				}
 			}
 		}
-		catch (std::exception& e) {
+		catch (const std::exception& e) {
 			ret = false;
-			LOGE("CreateFolderHandle folder_path is {}, error is {}", folder_path, std::string(e.what()));
+			err_msg = e.what();
+			YK_LOGE("CreateFolder folder_path is {}, error is {}", folder_path, err_msg);
 		}
-		return {ret, er_msg};
+		return { ret, err_msg };
 	}
 
 	std::tuple<bool, std::vector<std::string>, std::string> FileOperate::Remove(const std::vector<std::string>& paths) {
 		bool ret = true;
-		std::vector<std::string> er_paths;
-		std::string er_msg;
-		for (auto ph : paths) {
+		std::vector<std::string> err_paths;
+		std::string err_msg;
+		namespace fs = std::filesystem;
+
+		for (const auto& ph : paths) {
 			try {
-				QString path = QString::fromStdString(ph);
-				QFileInfo info{ path };
-				if (info.isDir()) {
-					QDir dir{ path };
-					if (!dir.exists()) {
-						break;
-					}
-					if (dir.removeRecursively()) {
-					}
-					else {
-						er_paths.emplace_back(ph);
-					}
+				std::error_code ec;
+				fs::path p(ph);
+
+				if (!fs::exists(p, ec)) {
+					continue;
 				}
-				else if (info.isFile()) {
-					QFile file{ path };
-					if (!file.exists()) {
-						break;
-					}
-					if (file.remove()) {
-					}
-					else {
-						er_paths.emplace_back(ph);
-					}
+
+				bool removed = false;
+
+				if (fs::is_directory(p, ec)) {
+					fs::remove_all(p, ec);
+					removed = !fs::exists(p, ec);
+				}
+				else if (fs::is_regular_file(p, ec)) {
+					removed = fs::remove(p, ec);
 				}
 				else {
+					removed = fs::remove(p, ec);
+				}
 
+				if (!removed || ec) {
+					ret = false;
+					err_paths.emplace_back(ph);
+					err_msg = ec ? ec.message() : "remove failed";
 				}
 			}
-			catch (std::exception& e) {
-				LOGE("Remove error, remove {}, failed is {}.", ph, er_msg);
+			catch (const std::exception& e) {
+				ret = false;
+				err_paths.emplace_back(ph);
+				err_msg = e.what();
+				YK_LOGE("Remove error, remove {}, failed is {}.", ph, err_msg);
 			}
 		}
-		return {ret, er_paths ,er_msg};
+
+		return { ret, err_paths, err_msg };
 	}
 
 	std::tuple<bool, std::string, std::string> FileOperate::CreateNewFolder(const std::string& parent_path_str) {
 		try {
-			QString parent_path = QString::fromStdString(parent_path_str);
-			QDir dir{ parent_path };
-			QString create_new_folder_path_ = "";
-			bool create_new_folder_res_ = false;
-			if (!dir.exists()) {
-				//return { false, "", parent_path_str + QStringLiteral("不存在.").toStdString()};
-				return { false, "", parent_path_str + tcTr("id_file_trans_no_exists").toStdString() };
+			namespace fs = std::filesystem;
+			std::error_code ec;
+			fs::path parent_path(parent_path_str);
+
+			if (!fs::exists(parent_path, ec) || !fs::is_directory(parent_path, ec)) {
+				return { false, "", parent_path_str + " path does not exist" };
 			}
+
 			int temp_count = 1;
-			//QString prefix = QStringLiteral("新建文件夹");
-			QString prefix = tcTr("id_file_trans_new_folder");
-			do {
-				QString suffix;
-				if (1 == temp_count) {
+			std::string prefix = "new_folder";
+			fs::path created_path;
+			bool created = false;
+
+			while (true) {
+				std::string suffix;
+				if (temp_count == 1) {
 					suffix = "";
-				}
-				else {
-					suffix = "(" + QString::number(temp_count) + ")";
+				} else {
+					suffix = "(" + std::to_string(temp_count) + ")";
 				}
 
-				QString new_folder_name = prefix + suffix;
-				create_new_folder_path_ = parent_path + "/" + new_folder_name;
-				QDir target_folder{ create_new_folder_path_ };
-				if (target_folder.exists()) {
+				std::string folder_name = prefix + suffix;
+				fs::path target_path = parent_path / folder_name;
+
+				if (fs::exists(target_path, ec)) {
 					++temp_count;
 					continue;
 				}
-				create_new_folder_res_ = dir.mkdir(new_folder_name);
+
+				if (fs::create_directory(target_path, ec)) {
+					created = true;
+					created_path = target_path;
+				}
 				break;
-			} while (true);
-			return { create_new_folder_res_, create_new_folder_res_ ? create_new_folder_path_.toStdString() : "", ""};
+			}
+
+			return { created, created ? created_path.string() : "", "" };
 		}
-		catch (std::exception& e) {
+		catch (const std::exception& e) {
 			std::string s = e.what();
-			LOGE("FileOperate::CreateNewFolder parent_path is {} error is {}", parent_path_str, s);
-			//return { false, "", QStringLiteral("新建文件夹失败: ").toStdString() + s};
-			return { false, "", tcTr("id_file_trans_new_folder_failed").toStdString() + s};
+			YK_LOGE("FileOperate::CreateNewFolder parent_path is {} error is {}", parent_path_str, s);
+			return { false, "", "Create new folder failed: " + s };
 		}
 	}
 
 	std::tuple<bool, uint64_t, uint64_t> FileOperate::IsExists(const std::string& u8_path) {
-		try { 
-			QFileInfo file_info{QString::fromStdString(u8_path)};
-			bool ret = file_info.exists();
+		try {
+			namespace fs = std::filesystem;
+			std::error_code ec;
+			fs::path p(u8_path);
+
+			if (!fs::exists(p, ec)) {
+				return { false, 0, 0 };
+			}
+
 			uint64_t file_size = 0;
 			uint64_t date_changed = 0;
-			if (ret) {
-				file_size = file_info.size();
-				date_changed = file_info.lastModified().toSecsSinceEpoch();
+
+			if (fs::is_regular_file(p, ec)) {
+				file_size = fs::file_size(p, ec);
 			}
-			return {ret, file_size, date_changed};
+
+			auto ftime = fs::last_write_time(p, ec);
+			if (!ec) {
+				auto secs = std::chrono::time_point_cast<std::chrono::seconds>(ftime).time_since_epoch().count();
+				date_changed = static_cast<uint64_t>(secs);
+			}
+
+			return { true, file_size, date_changed };
 		}
-		catch (std::exception& e) {
+		catch (const std::exception& e) {
 			std::string s = e.what();
-			LOGE(" FileOperate::IsExists error is {}", s);
-			return {false, 0, 0};
+			YK_LOGE("FileOperate::IsExists error is {}", s);
+			return { false, 0, 0 };
 		}
 	}
 
 	std::tuple<bool, std::string, std::string> FileOperate::Rename(const std::string& u8_old_path, const std::string& u8_new_name) {
 		try {
-			QString old_path = QString::fromStdString(u8_old_path);
-			QFileInfo old_file_info{ old_path };
-			if (!old_file_info.exists()) {
-				//return { false, "", QStringLiteral("目标路径不存在").toStdString()};
-				return { false, "", tcTr("id_file_trans_target_path_no_exists").toStdString()};
-			}
-			QString new_file_path = old_file_info.path() + "/" + QString::fromStdString(u8_new_name);
-			QFileInfo new_file_info{ new_file_path };
-			if (new_file_info.exists()) {
-				//return { false, "", QStringLiteral("重命名失败, 文件名已经被占用").toStdString()};
-				return { false, "", tcTr("id_file_trans_rename_failed_name_occypy").toStdString() };
+			namespace fs = std::filesystem;
+			std::error_code ec;
+			fs::path old_path(u8_old_path);
+
+			if (!fs::exists(old_path, ec)) {
+				return { false, "", "Target path does not exist" };
 			}
 
-			if (!QFile::rename(old_path, new_file_path)) {
-				//return { false, "", QStringLiteral("重命名失败, 请检查文件是否被占用").toStdString()};
-				return { false, "", tcTr("id_file_trans_rename_failed_file_occypy").toStdString()};
+			fs::path new_name(u8_new_name);
+			if (new_name.has_parent_path()) {
+				return { false, "", "Rename failed: new name contains path" };
 			}
-			
-			return { true, new_file_path.toStdString(), "" };
+
+			fs::path new_path = old_path.parent_path() / new_name;
+
+			if (fs::exists(new_path, ec)) {
+				return { false, "", "Name already exists" };
+			}
+
+			fs::rename(old_path, new_path, ec);
+			if (ec) {
+				return { false, "", "Rename failed" };
+			}
+
+			return { true, new_path.string(), "" };
 		}
-		catch (std::exception& e) {
+		catch (const std::exception& e) {
 			std::string s = e.what();
-			LOGE("FileOperate::rename error is {}", s);
-			//return { false, "", QStringLiteral("重命名失败").toStdString() + s};
-			return { false, "", tcTr("id_file_trans_rename_failed").toStdString() + s};
+			YK_LOGE("FileOperate::Rename error is {}", s);
+			return { false, "", "Rename failed: " + s };
 		}
 	}
 }

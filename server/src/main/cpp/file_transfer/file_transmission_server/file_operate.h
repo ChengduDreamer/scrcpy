@@ -3,8 +3,7 @@
 #include <memory>
 #include <string>
 #include <tuple>
-#include <QString>
-#include "tc_message.pb.h"
+#include "mirror_message.pb.h"
 
 namespace tc {
 	class FileOperate {
@@ -26,9 +25,6 @@ namespace tc {
 		std::tuple<bool, std::string, std::string> Rename(const std::string& old_path, const std::string& new_name);
 
 	private:
-		// win32: 获取此电脑的内容
-		std::vector<tc::FileDescInfo> GetThisPCFiles();
-
 		const std::string root_path_ = "/";
 
 		std::string desktop_path_ = "";
@@ -37,8 +33,7 @@ namespace tc {
 
 	private:
 		std::vector<tc::FileDescInfo> GetFilesListImpl(const std::string& path);
-		// 递归遍历
-		void TraverseDirectory(const QString& path, std::vector<QString>& folders, std::vector<QString>& files);
+		void TraverseDirectory(const std::string& path, std::vector<std::string>& folders, std::vector<std::string>& files);
 	};
 
 	

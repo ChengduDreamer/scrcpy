@@ -3,17 +3,17 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <atomic>
 #include <functional>
 #include <condition_variable>
 #include <asio2/asio2.hpp>
-#include "tc_message.pb.h"
+#include "mirror_message.pb.h"
+#include "cpp_base_lib/file.h"
 
 
 namespace tc {
 
     constexpr uint64_t kSingleBufferSize = 1024 * 4;
-
-	class File;
 
 	class FileUploadTask {
 	public:
@@ -32,7 +32,7 @@ namespace tc {
 		std::string task_id_;
 		std::string src_file_path_;
 		std::string target_file_path_;
-		std::shared_ptr<File> file_ptr_;
+		std::shared_ptr<yk::File> file_ptr_;
 		std::atomic<bool> is_ended_ = false;
 		std::atomic<uint64_t> last_update_time_ = 0;
 		uint64_t current_packet_index_ = 0; 

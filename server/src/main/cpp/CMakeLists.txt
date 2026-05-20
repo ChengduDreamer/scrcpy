@@ -41,12 +41,19 @@ set(protobuf_INSTALL OFF CACHE BOOL "" FORCE)
 set(protobuf_BUILD_PROTOC_BINARIES OFF CACHE BOOL "" FORCE)
 set(protobuf_WITH_ZLIB OFF CACHE BOOL "" FORCE)
 set(protobuf_BUILD_LIBUPB OFF CACHE BOOL "" FORCE)
-
+set(ABSL_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(ABSL_USE_EXTERNAL_GOOGLETEST OFF CACHE BOOL "" FORCE)
+# Pre-build abseil so protobuf sees TARGET absl::strings and skips fetch/add_subdirectory
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/protobuf/third_party/abseil-cpp"
+    "${CMAKE_CURRENT_BINARY_DIR}/abseil_build")
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/protobuf"
     "${CMAKE_CURRENT_BINARY_DIR}/protobuf_build")
 
 set(QTMIRROR_PROTOC_EXECUTABLE "${SC_HOST_PROTOC}")
+add_subdirectory(deps/cpp_base_lib)
+add_subdirectory(translator)
 add_subdirectory(dep_message)
+add_subdirectory(file_transfer)
 
 # Poco: only Foundation + Net (WebSocket lives in Net)
 set(POCO_MINIMAL_BUILD ON CACHE BOOL "Poco minimal" FORCE)
@@ -72,6 +79,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     ${log-lib}
     Poco::Net
     QtMirrorProto
+    plugin_file_transfer
 )
 
 # Copy .so to standalone output

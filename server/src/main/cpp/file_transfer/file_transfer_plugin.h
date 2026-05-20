@@ -1,14 +1,27 @@
-//
-//
+#pragma once
 
-#ifndef GAMMARAY_RTC_PLUGIN_H
-#define GAMMARAY_RTC_PLUGIN_H
 #include <memory>
+#include <string>
+
+#ifdef _WIN32
+    #define PLUGIN_API __declspec(dllexport)
+#else
+    #define PLUGIN_API __attribute__((visibility("default")))
+#endif
 //#include "plugin_interface/gr_plugin_interface.h"
 //#include "translator/yk_translator.h"
 
 namespace tc
 {
+
+    class FileTransferPluginSettings {
+    public:
+        int language_ = 1;
+        uint64_t max_transmit_speed_ = 0;
+        uint64_t max_receive_speed_ = 0;
+        std::string serial_;        // adb serial
+        std::string device_name_;   // 设备昵称
+    };
 
     class Message;
     class FileTransmitMsgInterface;
@@ -25,7 +38,8 @@ namespace tc
 
         bool Create();
         void OnMessage(std::shared_ptr<Message> msg);
-        void OnSyncPluginSettingsInfo(const GrPluginSettingsInfo& settings);
+        void SendProtoMessage(std::string stream_id, std::shared_ptr<Message> msg); 
+        void OnSyncPluginSettingsInfo(const FileTransferPluginSettings& settings);
         //LanguageKind GetCurrentLanguage();
 
     private:
@@ -34,6 +48,6 @@ namespace tc
 
 }
 
-extern "C" __declspec(dllexport) void* GetInstance();
+extern "C" PLUGIN_API void* GetInstance();
 
-#endif //GAMMARAY_UDP_PLUGIN_H
+

@@ -1,7 +1,7 @@
 #pragma once
 #include <string>
 #include <memory>
-#include "tc_message.pb.h"
+#include "mirror_message.pb.h"
 
 namespace tc {
 

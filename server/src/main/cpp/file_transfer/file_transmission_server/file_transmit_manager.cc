@@ -1,6 +1,7 @@
 #include "file_transmit_manager.h"
-#include "tc_message.pb.h"
-#include "tc_common_new/log.h"
+// #include "tc_message.pb.h"
+// #include "tc_common_new/log.h"
+#include "cpp_base_lib/yk_logger.h"
 #include "file_operate.h"
 #include "file_transmit_impl.h"
 
@@ -28,7 +29,7 @@ namespace tc {
 
 	void FileTransmitManager::HandleFileTransmitMessage(const std::shared_ptr<tc::Message>& message) {
 		if (!message->has_file_trans_data_packet()) {
-			LOGE("FileTransmitManager::HandleFileTransmitMessage error : msg !has_file_trans_data_packet");
+			YK_LOGE("FileTransmitManager::HandleFileTransmitMessage error : msg !has_file_trans_data_packet");
 			return;
 		}
 		auto file_data_packet = message->file_trans_data_packet();
@@ -42,11 +43,11 @@ namespace tc {
 
 	void FileTransmitManager::HandleFileOperateMsg(const std::shared_ptr<tc::Message>& msg) {
 		if (!msg->has_file_operateions_event()) {
-			LOGE("file_operateions_event is null.");
+			YK_LOGE("file_operateions_event is null.");
 			return;
 		}
 		auto operate = msg->file_operateions_event();
-		LOGI("HandleFileoperateMsg operate_type {} ",tc::FileOperateionsEvent_OperateType_Name(operate.operate_type()));
+		YK_LOGI("HandleFileoperateMsg operate_type {} ",tc::FileOperateionsEvent_OperateType_Name(operate.operate_type()));
 		auto seq = msg->file_operate_sequence(); // 指令序号. 消息对应的操作完成以后，要将结果封装为消息反馈给客户端，还要将指令序号返回回去
 		if (operate.operate_type() == tc::FileOperateionsEvent::kGetFilesList) {
 			std::string path = operate.path_of_filelist();
@@ -138,7 +139,7 @@ namespace tc {
 	// 对端保存文件异常或者对端取消任务 会发送此消息
 	void FileTransmitManager::HandleSaveFileExceptionMessage(const std::shared_ptr<tc::Message>& message) {
 		if (!message->has_file_trans_save_file_exception()) {
-			LOGE("FileTransmitManager::HandleSaveFileExceptionMessage error : msg !file_transmit_download_exception");
+			YK_LOGE("FileTransmitManager::HandleSaveFileExceptionMessage error : msg !file_transmit_download_exception");
 			return;
 		}
 		auto save_file_exception = message->file_trans_save_file_exception();
@@ -147,7 +148,7 @@ namespace tc {
 
 	void FileTransmitManager::HandleFileTransDataPacketResponseMessage(const std::shared_ptr<tc::Message>& message) {
 		if (!message->has_file_trans_data_packet_response()) {
-			LOGE("FileTransmitManager::HandleFileTransDataPacketResponseMessage error : msg !has_file_trans_data_packet_response");
+			YK_LOGE("FileTransmitManager::HandleFileTransDataPacketResponseMessage error : msg !has_file_trans_data_packet_response");
 			return;
 		}
 		auto file_trans_data_packet_resp = message->file_trans_data_packet_response();
