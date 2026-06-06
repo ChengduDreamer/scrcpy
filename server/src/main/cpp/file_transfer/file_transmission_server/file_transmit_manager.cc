@@ -162,4 +162,10 @@ namespace tc {
 	void FileTransmitManager::SetMaxSpeedBybitPerSecond(uint64_t speed) {
 		file_transmit_impl_->SetMaxSpeedBybitPerSecond(speed);
 	}
+
+	void FileTransmitManager::OnConnectionLost() {
+		if (file_transmit_impl_) {
+			file_transmit_impl_->OnConnectionLost();
+		}
+	}
 }

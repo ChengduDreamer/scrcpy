@@ -5,6 +5,8 @@
 #include "jni_helper.h"
 #include "poco_websocket_server.h"
 #include "test_native.h"
+#include "file_transfer_plugin.h"
+#include "mirror_message.pb.h"
 
 #define TAG "scrcpy-native"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -18,6 +20,43 @@ static scrcpy::PocoWebsocketServer g_wsServer;
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void * /* reserved */) {
     g_jvm = vm;
     LOGI("JNI_OnLoad: scrcpy_native library loaded");
+
+    auto* plugin = static_cast<tc::FileTransferPlugin*>(GetInstance());
+    plugin->Create([](const std::string& stream_id,
+                      const std::vector<uint8_t>& data) -> bool {
+        (void)stream_id;
+        if (!g_wsServer.HasConnection()) {
+            LOGE("SendProtoMessage: no WebSocket connection");
+            return false;
+        }
+        return g_wsServer.SendBinary(data.data(), data.size());
+    });
+
+    // Capture plugin pointer to avoid repeated GetInstance() calls
+    g_wsServer.SetOnBinaryMessage([plugin](const uint8_t* data, size_t len) {
+        auto msg = std::make_shared<tc::Message>();
+        if (!msg->ParseFromArray(data, static_cast<int>(len))) {
+            LOGE("Failed to parse proto message");
+            return;
+        }
+        // File transfer messages: enum 260-320 (// file transfer begin ~ end)
+        auto type = msg->type();
+        if (type >= tc::kFileOperationEvent && type <= tc::kFileTransSaveFileException) {
+            plugin->OnMessage(msg);
+        } else {
+            LOGI("Ignored non-file-transfer message type: %d", static_cast<int>(type));
+        }
+    });
+
+    g_wsServer.SetOnConnectionStateChanged([plugin](bool connected) {
+        if (!connected) {
+            LOGI("WebSocket disconnected, cancelling file transfers");
+            plugin->OnConnectionLost();
+        } else {
+            LOGI("WebSocket connected");
+        }
+    });
+
     return JNI_VERSION_1_6;
 }
 
@@ -95,7 +134,7 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_genymobile_scrcpy_NativeBridge_startWebSocketServer(
     JNIEnv * /*env*/, jclass /*clazz*/, jint port) {
     bool ok = g_wsServer.Start(port);
-    LOGI("startWebSocketServer(%d): %s", port, ok ? "started" : "failed");
+    LOGI("===>0 startWebSocketServer(%d): %s", port, ok ? "started" : "failed");
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 

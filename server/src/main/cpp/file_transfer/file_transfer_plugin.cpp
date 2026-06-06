@@ -39,16 +39,17 @@ namespace tc
 //    }
 
     void FileTransferPlugin::OnMessage(std::shared_ptr<Message> msg) {
-        //LOGI("OnMessage, file transfer enabled: {}", sys_settings_.file_transfer_enabled_);
-//        if (!file_trans_msg_interface_ || !sys_settings_.file_transfer_enabled_) {
-//            return;
-//        }
-
         if (!file_trans_msg_interface_) {
             return;
         }
-
         file_trans_msg_interface_->OnMessage(msg);
+    }
+
+    void FileTransferPlugin::OnConnectionLost() {
+        if (!file_trans_msg_interface_) {
+            return;
+        }
+        file_trans_msg_interface_->OnConnectionLost();
     }
 
 //    bool FileTransferPlugin::OnCreate(const GrPluginParam& param) {
@@ -71,7 +72,8 @@ namespace tc
 //        return true;
 //    }
 
-    bool FileTransferPlugin::Create() {
+    bool FileTransferPlugin::Create(SendMessageCallback sender) {
+        sender_ = std::move(sender);
         file_trans_msg_interface_ = FileTransmitMsgInterface::Make(this);
         file_trans_msg_interface_->RegisterFileTransmitCallback();
 
@@ -106,9 +108,18 @@ namespace tc
 
 
 
-    void FileTransferPlugin::SendProtoMessage(std::string stream_id, std::shared_ptr<Message> msg) {
-        // to do: 发送消息给客户端
-
+    bool FileTransferPlugin::SendProtoMessage(std::string stream_id, std::shared_ptr<Message> msg) {
+        if (!sender_) {
+            YK_LOGE("SendProtoMessage: sender not set");
+            return false;
+        }
+        std::string payload;
+        if (!msg->SerializeToString(&payload)) {
+            YK_LOGE("SendProtoMessage: SerializeToString failed");
+            return false;
+        }
+        std::vector<uint8_t> data(payload.begin(), payload.end());
+        return sender_(std::move(stream_id), std::move(data));
     }
 
 }

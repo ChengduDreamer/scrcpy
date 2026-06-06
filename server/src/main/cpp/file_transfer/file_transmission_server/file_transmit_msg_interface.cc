@@ -28,6 +28,12 @@ FileTransmitMsgInterface::~FileTransmitMsgInterface() {
 
 }
 
+void FileTransmitMsgInterface::OnConnectionLost() {
+	if (file_trans_manager_) {
+		file_trans_manager_->OnConnectionLost();
+	}
+}
+
 void FileTransmitMsgInterface::OnMessage(const std::shared_ptr<tc::Message>& message) {
 	if (!file_trans_manager_ || !IsFileTransferEnabled()) {
 		return;
@@ -233,21 +239,10 @@ void FileTransmitMsgInterface::RegisterFileTransmitCallback() {
 	};
 
 	file_trans_manager_->file_transmit_impl_->send_data_packet_func_ = [=, this](const std::string& stream_id, std::shared_ptr<tc::Message> message) -> bool {
-        // todo: TEST !
-//        int64_t queuing_msg_count = file_trans_plugin_->GetQueuingFtMsgCountInNetPlugins();
-//        while (queuing_msg_count > 256) {
-//            LOGW("too many queuing msgs in net plugins: {}", queuing_msg_count);
-//            TimeUtil::DelayBySleep(5);
-//            queuing_msg_count = file_trans_plugin_->GetQueuingFtMsgCountInNetPlugins();
-//        }
-
-        // auto buffer = ProtoAsData(message);
-		// 这里最好加个返回值判断
-        if (IsFileTransferEnabled()) {
-            // file_trans_plugin_->DispatchTargetFileTransferMessage(stream_id, buffer);
-			file_trans_plugin_->SendProtoMessage(stream_id, message);
+        if (!IsFileTransferEnabled()) {
+            return false;
         }
-		return true;
+        return file_trans_plugin_->SendProtoMessage(stream_id, message);
 	};
 
 	file_trans_manager_->RegRemoveCallback([=, this](const std::string& stream_id, int resp_seq, bool ret, std::vector<std::string> er_paths, std::string er_msg) {

@@ -41,6 +41,8 @@ namespace tc {
 		void HandleSaveFileExceptionMessage(const std::shared_ptr<tc::Message>& message);
 
 		void HandleFileTransDataPacketResponseMessage(const std::shared_ptr<tc::Message>& message);
+
+		void OnConnectionLost();
 		
 		void RegGetFileListCallback(GetFileListCallbackFuncType callback) {
 			get_file_list_callback_ = callback;

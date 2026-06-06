@@ -83,6 +83,8 @@ namespace tc {
 
 		void HandleFileTransDataPacketResponse(const std::string& stream_id, tc::FileTransDataPacketResponse data_packet_resp);
 
+		void OnConnectionLost();
+
 		//将 文件流 对象保存起来, 因为要持续写文件
 		std::mutex id_with_upload_task_mutex_;
 		std::map<std::string, std::shared_ptr<FileUploadTask>> id_with_upload_task_;

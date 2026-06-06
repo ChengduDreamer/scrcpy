@@ -1,7 +1,9 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 #ifdef _WIN32
     #define PLUGIN_API __declspec(dllexport)
@@ -28,6 +30,9 @@ namespace tc
 
     class FileTransferPlugin {
     public:
+        using SendMessageCallback = std::function<bool(const std::string& stream_id,
+                                                        const std::vector<uint8_t>& data)>;
+
 //        std::string GetPluginId() override;
 //        std::string GetPluginName() override;
 //        std::string GetVersionName() override;
@@ -36,14 +41,16 @@ namespace tc
 
 //        bool OnCreate(const GrPluginParam& param);
 
-        bool Create();
+        bool Create(SendMessageCallback sender);
         void OnMessage(std::shared_ptr<Message> msg);
-        void SendProtoMessage(std::string stream_id, std::shared_ptr<Message> msg); 
+        void OnConnectionLost();
+        bool SendProtoMessage(std::string stream_id, std::shared_ptr<Message> msg);
         void OnSyncPluginSettingsInfo(const FileTransferPluginSettings& settings);
         //LanguageKind GetCurrentLanguage();
 
     private:
         std::shared_ptr<FileTransmitMsgInterface> file_trans_msg_interface_ = nullptr;
+        SendMessageCallback sender_;
     };
 
 }

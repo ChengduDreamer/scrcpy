@@ -16,6 +16,8 @@ public:
 
 	void OnMessage(const std::shared_ptr<tc::Message>& msg);
 
+	void OnConnectionLost();
+
 	void RegisterFileTransmitCallback();
 
 	uint64_t GetMaxSpeedBybitPerSecond();

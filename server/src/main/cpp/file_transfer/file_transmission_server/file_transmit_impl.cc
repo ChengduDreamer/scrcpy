@@ -489,6 +489,34 @@ namespace tc {
 		}
 	}
 
+	void FileTransmitImpl::OnConnectionLost() {
+		// Close all upload file handles and mark tasks ended.
+		{
+			std::lock_guard<std::mutex> lck(id_with_upload_task_mutex_);
+			for (auto& pair : id_with_upload_task_) {
+				if (pair.second->file_ptr_ && pair.second->file_ptr_->IsOpen()) {
+					pair.second->file_ptr_->Close();
+				}
+				pair.second->is_ended_ = true;
+			}
+			id_with_upload_task_.clear();
+		}
+		// Mark all download tasks as opposite-end error so loops exit.
+		// Do NOT clear the map here: HandleDownload uses operator[] which would
+		// re-insert a default-constructed kNormal entry if the key is missing.
+		{
+			std::lock_guard<std::mutex> lck(file_transmit_mutex_);
+			for (auto& pair : file_transmit_task_with_simple_state_) {
+				pair.second = EFileTransmitTaskSimpleState::kOppositeEndError;
+			}
+		}
+		// Wake up any thread waiting on token bucket or recv index.
+		{
+			std::unique_lock<std::mutex> lck(grant_token_mutex_);
+			grant_token_cv_.notify_all();
+		}
+	}
+
 	void FileTransmitImpl::HandleFileTransDataPacketResponse(const std::string& stream_id, tc::FileTransDataPacketResponse data_packet_resp) {
 		uint64_t recved_index = data_packet_resp.index();
 		std::string task_id = data_packet_resp.task_id();
