@@ -68,6 +68,7 @@ void FileTransmitMsgInterface::RegisterFileTransmitCallback() {
 	file_trans_manager_->RegGetFileListCallback([=, this](
 		const std::string& stream_id, int resp_seq, bool ret, std::vector<tc::FileDescInfo> file_infos, std::string error_msg, std::string target_path, std::string file_permission_path
 	) {
+		YK_LOGI("[Android] RegGetFileListCallback sending resp seq={}, target_path={}, ret={}, file_count={}", resp_seq, target_path, ret, file_infos.size());
 		auto message = std::make_shared<tc::Message>();
 		message->set_type(tc::kFileOperateRespGetFileList);
 		message->set_file_operate_resp_sequence(resp_seq);

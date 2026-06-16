@@ -51,8 +51,11 @@ namespace tc {
 		auto seq = msg->file_operate_sequence(); // 指令序号. 消息对应的操作完成以后，要将结果封装为消息反馈给客户端，还要将指令序号返回回去
 		if (operate.operate_type() == tc::FileOperateionsEvent::kGetFilesList) {
 			std::string path = operate.path_of_filelist();
+			YK_LOGI("[Android] HandleFileOperateMsg kGetFilesList seq={}, path={}, thread_tasks={}", seq, path, file_operate_thread_->size());
 			file_operate_thread_->post(std::move([=]() {
+				YK_LOGI("[Android] GetFilesList START seq={}, path={}", seq, path);
 				auto get_files_list_res = file_operate_->GetFilesList(path);
+				YK_LOGI("[Android] GetFilesList END seq={}, path={}, ret={}, file_count={}", seq, path, std::get<0>(get_files_list_res), std::get<1>(get_files_list_res).size());
 				if (get_file_list_callback_) {
 					get_file_list_callback_(msg->stream_id(), seq, std::get<0>(get_files_list_res), std::get<1>(get_files_list_res), std::get<2>(get_files_list_res), path, std::get<3>(get_files_list_res));
 				}

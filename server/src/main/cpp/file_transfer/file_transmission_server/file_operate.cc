@@ -23,19 +23,37 @@ namespace tc {
 		namespace fs = std::filesystem;
 		std::vector<tc::FileDescInfo> file_infos;
 		fs::path dir_path(path);
+		std::error_code ec;
 
-		if (!fs::exists(dir_path) || !fs::is_directory(dir_path)) {
+		YK_LOGI("[Android] GetFilesListImpl START path={}", path);
+		if (!fs::exists(dir_path, ec) || !fs::is_directory(dir_path, ec)) {
+			YK_LOGI("[Android] GetFilesListImpl path not exists or not dir, path={}, ec={}", path, ec.message());
 			return file_infos;
 		}
 
-		for (const auto& entry : fs::directory_iterator(dir_path)) {
+		int entry_count = 0;
+		int skip_count = 0;
+		for (const auto& entry : fs::directory_iterator(dir_path, fs::directory_options::skip_permission_denied, ec)) {
+			if (ec) {
+				YK_LOGI("[Android] GetFilesListImpl iterator ec, path={}, ec={}", path, ec.message());
+				ec.clear();
+				continue;
+			}
+			entry_count++;
 			tc::FileDescInfo info;
 			const fs::path& p = entry.path();
 			info.set_name(p.filename().string());
-			info.set_path(fs::absolute(p).string());
+			info.set_path(fs::absolute(p, ec).string());
+			if (ec) {
+				YK_LOGI("[Android] GetFilesListImpl absolute failed, name={}, ec={}", info.name(), ec.message());
+				ec.clear();
+				continue;
+			}
 
 			struct stat st{};
 			if (stat(info.path().c_str(), &st) != 0) {
+				YK_LOGI("[Android] GetFilesListImpl stat failed, name={}, path={}", info.name(), info.path());
+				skip_count++;
 				continue;
 			}
 
@@ -51,10 +69,12 @@ namespace tc {
 				info.set_date(static_cast<uint64_t>(st.st_mtim.tv_sec));
 			}
 			else {
+				skip_count++;
 				continue;
 			}
 			file_infos.emplace_back(std::move(info));
 		}
+		YK_LOGI("[Android] GetFilesListImpl END path={}, entry_count={}, valid_count={}, skip_count={}", path, entry_count, file_infos.size(), skip_count);
 		return file_infos;
 	}
 
@@ -63,24 +83,24 @@ namespace tc {
 			std::string permission_log;
 			namespace fs = std::filesystem;
 			fs::path visit_path(path);
+			std::error_code ec;
 
-			if (!fs::exists(visit_path)) {
+			YK_LOGI("[Android] GetFilesList called path={}", path);
+			if (!fs::exists(visit_path, ec)) {
+				YK_LOGI("[Android] GetFilesList path not exists, path={}", path);
 				return { false, {}, permission_log + "The accessed directory no longer exists", s_file_permission_path_ };
 			}
-			if (!fs::is_directory(visit_path)) {
+			if (!fs::is_directory(visit_path, ec)) {
+				YK_LOGI("[Android] GetFilesList path not dir, path={}", path);
 				return { false, {}, permission_log + "The accessed path is not a valid folder or disk directory", s_file_permission_path_ };
 			}
 
-			if (root_path_ == path) {
-				std::vector<tc::FileDescInfo> file_infos = GetFilesListImpl(path);
-				return { true, std::move(file_infos), permission_log, s_file_permission_path_ };
-			}
-
 			std::vector<tc::FileDescInfo> file_infos = GetFilesListImpl(path);
+			YK_LOGI("[Android] GetFilesList returning path={}, count={}", path, file_infos.size());
 			return { true, std::move(file_infos), permission_log, s_file_permission_path_ };
 		}
 		catch (std::exception& e) {
-			YK_LOGE("GetFilesList path is {}, error is {}", path, e.what());
+			YK_LOGE("[Android] GetFilesList EXCEPTION path={}, error={}", path, e.what());
 			return { false, {}, e.what(), s_file_permission_path_ };
 		}
 	}
