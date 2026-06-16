@@ -39,8 +39,23 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void * /* reserved */) {
             LOGE("Failed to parse proto message");
             return;
         }
+        const auto type = msg->type();
+
+        // Application-layer heartbeat. Avoids POCO WebSocket PING/PONG which has
+        // been observed to put some clients into a tight receive-loop spin.
+        if (type == tc::kHeartBeat) {
+            auto resp = std::make_shared<tc::Message>();
+            resp->set_type(tc::kOnHeartBeat);
+            resp->set_stream_id(msg->stream_id());
+            if (msg->has_heartbeat()) {
+                auto* on = resp->mutable_on_heartbeat();
+                on->set_index(msg->heartbeat().index());
+            }
+            plugin->SendProtoMessage(msg->stream_id(), resp);
+            return;
+        }
+
         // File transfer messages: enum 260-320 (// file transfer begin ~ end)
-        auto type = msg->type();
         if (type >= tc::kFileOperationEvent && type <= tc::kFileTransSaveFileException) {
             plugin->OnMessage(msg);
         } else {

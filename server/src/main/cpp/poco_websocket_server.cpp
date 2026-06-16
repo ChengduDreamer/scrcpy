@@ -76,10 +76,20 @@ public:
         using Poco::Net::WebSocket;
         using Poco::Net::WebSocketException;
 
+        LOGI("WebSocketRequestHandler: handleRequest entered from %s, URI=%s, method=%s, Upgrade=%s",
+             request.clientAddress().toString().c_str(),
+             request.getURI().c_str(),
+             request.getMethod().c_str(),
+             request.find("Upgrade") != request.end() ? request["Upgrade"].c_str() : "<missing>");
+
         try {
+            LOGI("WebSocketRequestHandler: constructing WebSocket (performing handshake)");
             WebSocket ws(request, response);
             constexpr int kMaxPayload = 64 * 1024 * 1024;
             ws.setMaxPayloadSize(kMaxPayload);
+            // Detect silent client disconnects: if no frame arrives within 60s,
+            // receiveFrame throws TimeoutException and the handler exits cleanly.
+            ws.setReceiveTimeout(Poco::Timespan(60, 0));
             LOGI("WebSocket client connected: %s, URI: %s, method: %s",
                  request.clientAddress().toString().c_str(),
                  request.getURI().c_str(),
@@ -269,10 +279,17 @@ public:
 
     Poco::Net::HTTPRequestHandler *createRequestHandler(
         const Poco::Net::HTTPServerRequest &request) override {
+        LOGI("WsHandlerFactory: incoming request from %s, method=%s, URI=%s, Upgrade=%s, Connection=%s",
+             request.clientAddress().toString().c_str(),
+             request.getMethod().c_str(),
+             request.getURI().c_str(),
+             request.find("Upgrade") != request.end() ? request["Upgrade"].c_str() : "<missing>",
+             request.find("Connection") != request.end() ? request["Connection"].c_str() : "<missing>");
         const bool wsUpgrade =
             request.find("Upgrade") != request.end() &&
             Poco::icompare(request["Upgrade"], "websocket") == 0;
         if (!wsUpgrade) {
+            LOGI("WsHandlerFactory: rejecting non-WebSocket request (Upgrade missing or not 'websocket')");
             return new NotFoundHandler();
         }
         if (!IsAllowedWebSocketPath(request.getURI())) {
@@ -280,6 +297,7 @@ public:
                  request.getURI().c_str(), kWebSocketPath);
             return new NotFoundHandler();
         }
+        LOGI("WsHandlerFactory: accepting WebSocket upgrade for URI=%s", request.getURI().c_str());
         return new WebSocketRequestHandler(m_server);
     }
 
@@ -350,7 +368,12 @@ void PocoWebsocketServer::SendLoop() {
             LOGE("SendLoop sendFrame failed: %s", e.what());
             if (++consecutiveErrors >= 3) {
                 LOGE("SendLoop consecutive errors, resetting connection");
-                m_connection.reset();
+                {
+                    std::lock_guard<std::mutex> connLock(m_connectionMutex);
+                    m_connection.reset();
+                }
+                // Notify outside the lock to avoid re-entrant deadlock if the
+                // callback calls back into this class (e.g. SendBinary).
                 NotifyConnectionState(false);
                 consecutiveErrors = 0;
             }
@@ -452,6 +475,12 @@ bool PocoWebsocketServer::Start(int port) {
         auto *params = new Poco::Net::HTTPServerParams();
         params->setMaxQueued(64);
         params->setMaxThreads(8);
+        // NOTE: Do NOT set timeout to 0. Poco's HTTPServerSession::hasMoreRequests()
+        // uses this timeout in socket().poll(timeout, SELECT_READ). A 0 timeout
+        // causes poll() to return immediately, often before the client request
+        // arrives, making the server close every connection with an empty reply.
+        // Default is 60s, which is fine for the HTTP upgrade phase.
+        // params->setTimeout(Poco::Timespan(0, 0));
 
         // Start work & send threads BEFORE the HTTP server begins accepting
         m_running = true;
@@ -495,10 +524,9 @@ void PocoWebsocketServer::Stop() {
     }
     m_sendCv.notify_one();
 
-    // 2. Join SendLoop first — after this, NO thread calls sendFrame.
-    if (m_sendThread.joinable()) m_sendThread.join();
-
-    // 3. Close socket to unblock handler's receiveFrame.
+    // 2. Close the socket BEFORE joining SendLoop. If SendLoop is blocked in
+    //    sendFrame() on a dead/stalled peer, closing the socket unblocks it and
+    //    lets it exit. Closing before the join prevents Stop() from hanging.
     {
         std::lock_guard<std::mutex> lock(m_connectionMutex);
         if (m_connection) {
@@ -507,6 +535,9 @@ void PocoWebsocketServer::Stop() {
             } catch (...) {}
         }
     }
+
+    // 3. Join SendLoop — after this, NO thread calls sendFrame.
+    if (m_sendThread.joinable()) m_sendThread.join();
 
     // 4. Stop Poco HTTP server (waits for handler threads to finish)
     try {
@@ -571,6 +602,8 @@ bool PocoWebsocketServer::SendBinary(const void* data, size_t len) {
             }
         }
         SendItem item;
+        item.isPong = false;
+        item.isClose = false;
         LOGD("SendBinary: %zu bytes requested", len);
         item.data.assign(
             static_cast<const uint8_t*>(data),
