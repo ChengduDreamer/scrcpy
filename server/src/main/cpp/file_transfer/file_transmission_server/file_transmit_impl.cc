@@ -1,5 +1,6 @@
 #include "file_transmit_impl.h"
 #include <filesystem>
+#include <vector>
 #include "cpp_base_lib/yk_logger.h"
 #include "cpp_base_lib/time_util.h"
 #include "cpp_base_lib/file.h"
@@ -49,24 +50,36 @@ namespace tc {
 	}
 
 	void FileTransmitImpl::On6000msTimer() {
-		std::lock_guard<std::mutex> lg(id_with_upload_task_mutex_);
-		for (auto it = id_with_upload_task_.begin(); it != id_with_upload_task_.end(); ++it) {
-			if (it->second->is_ended_) {
-				if (it->second->file_ptr_) {
-					if (it->second->file_ptr_->IsOpen()) {
-						it->second->file_ptr_->Close();
+		// BUG-2 修复（降级为内存治理）：原实现只对 is_ended_ 任务关句柄、从不 erase，
+		// 长连接下 id_with_upload_task_ 持续增长（缓慢泄漏）。这里与 PC 侧
+		// FileTransmitSDK::On6000msTimer 对称：收集已结束任务的 task_id，循环后 erase。
+		// 注：task_id 单调递增不复用，故不存在"第二次传输误判丢包"（详见审查补充文档）。
+		std::vector<std::string> ended_task_ids;
+		{
+			std::lock_guard<std::mutex> lg(id_with_upload_task_mutex_);
+			for (auto it = id_with_upload_task_.begin(); it != id_with_upload_task_.end(); ++it) {
+				if (it->second->is_ended_) {
+					if (it->second->file_ptr_) {
+						if (it->second->file_ptr_->IsOpen()) {
+							it->second->file_ptr_->Close();
+						}
 					}
+					ended_task_ids.emplace_back(it->first);
+					continue;
 				}
-				continue;
+				auto now = yk::TimeUtil::GetCurrentTimestamp();
+				if (now - it->second->last_update_time_ >= 14 * 1000) {
+					it->second->is_ended_ = true;
+					if (it->second->file_ptr_) {
+						if (it->second->file_ptr_->IsOpen()) {
+							it->second->file_ptr_->Close();
+						}
+					}
+					ended_task_ids.emplace_back(it->first);
+				}
 			}
-			auto now = yk::TimeUtil::GetCurrentTimestamp();
-			if (now - it->second->last_update_time_ >= 14 * 1000) {
-				it->second->is_ended_ = true;
-				if (it->second->file_ptr_) {
-					if (it->second->file_ptr_->IsOpen()) {
-						it->second->file_ptr_->Close();
-					}
-				}
+			for (auto& id : ended_task_ids) {
+				id_with_upload_task_.erase(id);
 			}
 		}
 	}
@@ -249,6 +262,12 @@ namespace tc {
 
 	// 有异常的时候才会调用call_download_callback， 没有异常的话 直接发送下载数据包了
 	void FileTransmitImpl::call_download_callback(const std::string& device_id, const std::string& stream_id, const std::string& task_id, FileDownloadTask::EFileDownloadState state) {
+		// BUG-6 修复：download_except_func_ 是裸 std::function，注册前触发会抛 std::bad_function_call。
+		// 与 call_upload_callback 的判空保持一致。
+		if (!download_except_func_) {
+			YK_LOGE("FileTransmitImpl download_except_func_ is null.");
+			return;
+		}
 		auto resp_download = new tc::FileTransRespDownload();
 		resp_download->set_task_id(task_id);
 		resp_download->set_res(false);
@@ -272,6 +291,8 @@ namespace tc {
 			std::lock_guard<std::mutex> lck{ file_transmit_mutex_ };
 			file_transmit_task_with_simple_state_[task_id] = EFileTransmitTaskSimpleState::kNormal;
 		}
+		// BUG-3/BUG-4：本次下载开始时标记链路可用，清除上次断连遗留的 false。
+		connection_active_.store(true);
 		try {
 			const std::size_t buffer_size = kSingleBufferSize;
 			char buffer[buffer_size] = { 0, };
@@ -330,14 +351,22 @@ namespace tc {
 				file_data_packet->set_target_file_path(save_path);
 				file_data_packet->set_file_size(file_size);
 				msg->set_allocated_file_trans_data_packet(file_data_packet);
+				// NEW-3 修复：lambda 捕获的 index 是 set_index(index++) 自增后的值（旧值+1），
+				// 与对端 ACK 回报的实际包序号差 1。这里取实际包序号参与背压比较。
+				const uint64_t sent_index = file_data_packet->index();
 				std::shared_ptr<void> auto_send{ nullptr, [=, &is_send_msg, &is_abort](void* buf) {
+					// BUG-9 修复：把「不发送」判断提到最前，避免取消/对端异常时仍先阻塞在令牌桶/背压等待上。
+					if (!is_send_msg) {
+						return;
+					}
 
+					// BUG-3 修复：令牌桶等待谓词加入 connection_active_ 短路，断连时及时退出。
 					if (0 >= token_bucket_) {
 						int loop_count = 0;
 						while (true) {
 							std::unique_lock<std::mutex> lck{ grant_token_mutex_ };
 							auto res = grant_token_cv_.wait_for(lck, std::chrono::milliseconds(1), [=]() ->bool {
-								if (token_bucket_ > 0) {
+								if (!connection_active_.load() || token_bucket_ > 0) {
 									return true;
 								}
 								return false;
@@ -349,13 +378,16 @@ namespace tc {
 						}
 					}
 
+					// BUG-4 修复（最小加固，保留 %100 ACK）：背压谓词用 find 避免 operator[] 误插入 0；
+					// 用 sent_index 修 off-by-one；加 connection_active_ 短路。
 					{
 						bool need_wait = false;
 						{
 							std::unique_lock<std::mutex> lck{ grant_token_mutex_ };
-							if (task_id_with_recved_index_.count(task_id)) {
-								YK_LOGW("index - task_id_with_recved_index_[task_id] = {}", index - task_id_with_recved_index_[task_id]);
-								if (index - task_id_with_recved_index_[task_id] >= 180) {
+							auto it = task_id_with_recved_index_.find(task_id);
+							if (it != task_id_with_recved_index_.end()) {
+								YK_LOGW("sent_index - recved_index = {}", sent_index - it->second);
+								if (sent_index - it->second >= 180) {
 									need_wait = true;
 								}
 							}
@@ -365,7 +397,11 @@ namespace tc {
 							while (true) {
 								std::unique_lock<std::mutex> lck{ grant_token_mutex_ };
 								auto res = grant_token_cv_.wait_for(lck, std::chrono::milliseconds(1), [=]() ->bool {
-									if (index - task_id_with_recved_index_[task_id] < 180) {
+									if (!connection_active_.load()) {
+										return true;
+									}
+									auto it = task_id_with_recved_index_.find(task_id);
+									if (it == task_id_with_recved_index_.end() || sent_index - it->second < 180) {
 										return true;
 									}
 									return false;
@@ -378,7 +414,7 @@ namespace tc {
 						}
 					}
 
-					if (!is_send_msg) {
+					if (!connection_active_.load()) {
 						return;
 					}
 					if (!send_data_packet_func_) {
@@ -391,7 +427,8 @@ namespace tc {
 						YK_LOGE("HandleDownload send msg time out.");
 						return;
 					}
-					--token_bucket_;
+					// BUG-3 修复：安全消费令牌，避免超时退出后仍 -- 致令牌桶走负。
+					TryConsumeToken();
 					//std::this_thread::sleep_for(std::chrono::milliseconds(1));
 				}};
 				{ // 判断任务是否被取消 或者 对端发生了异常
@@ -490,6 +527,8 @@ namespace tc {
 	}
 
 	void FileTransmitImpl::OnConnectionLost() {
+		// BUG-3/BUG-4：置链路不可用，让阻塞在令牌桶/背压上的下载发送循环及时退出。
+		connection_active_.store(false);
 		// Close all upload file handles and mark tasks ended.
 		{
 			std::lock_guard<std::mutex> lck(id_with_upload_task_mutex_);
@@ -527,7 +566,18 @@ namespace tc {
 	}
 
 	void FileTransmitImpl::GrantTokenBucket() {
-		token_bucket_ = token_bucket_ + speed_by_MB_per_100ms_ / kSingleBufferSize;
+		// BUG-3 修复（与 PC 侧对称）：floor 保底 +1 治低速饥饿；fetch_add 治并发 -- 丢更新；CAS 封顶防无限累积。
+		int64_t grant = static_cast<int64_t>(speed_by_MB_per_100ms_ / kSingleBufferSize);
+		if (grant < 1) {
+			grant = 1;
+		}
+		token_bucket_.fetch_add(grant);
+		int64_t cur = token_bucket_.load();
+		while (cur > kTokenBucketCap) {
+			if (token_bucket_.compare_exchange_weak(cur, kTokenBucketCap)) {
+				break;
+			}
+		}
 		std::unique_lock<std::mutex> lck{ grant_token_mutex_ };
 		grant_token_cv_.notify_all();
 	}
@@ -536,8 +586,23 @@ namespace tc {
 		token_bucket_ = 10;
 	}
 
+	bool FileTransmitImpl::TryConsumeToken() {
+		// BUG-3 修复：仅当 token>0 时 CAS 递减，避免超时退出后仍 -- 致令牌桶走负。
+		int64_t expected = token_bucket_.load();
+		while (expected > 0) {
+			if (token_bucket_.compare_exchange_weak(expected, expected - 1)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	void FileTransmitImpl::SetMaxSpeedBybitPerSecond(uint64_t speed) {
 		if (0 == speed) {
+			// BUG-12 修复：0 语义=不限速，而非无效输入。令牌补充量置上限，等效无节流。
+			speed_by_bit_per_1000ms_ = 0;
+			speed_by_MB_per_100ms_ = kMaxSpeedByMBPer100ms;
+			YK_LOGI("speed_by_MB_per_100ms_ is {} (unlimited)", speed_by_MB_per_100ms_);
 			return;
 		}
 		speed_by_bit_per_1000ms_ = speed;

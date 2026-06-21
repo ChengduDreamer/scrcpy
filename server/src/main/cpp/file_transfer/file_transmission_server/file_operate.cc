@@ -9,7 +9,6 @@
 #endif
 
 #include <filesystem>
-#include <sys/stat.h>
 #include <chrono>
 #include "cpp_base_lib/yk_logger.h"
 #include "mirror_message.pb.h"
@@ -50,23 +49,35 @@ namespace tc {
 				continue;
 			}
 
-			struct stat st{};
-			if (stat(info.path().c_str(), &st) != 0) {
-				YK_LOGI("[Android] GetFilesListImpl stat failed, name={}, path={}", info.name(), info.path());
-				skip_count++;
-				continue;
-			}
-
+			// BUG-1 修复：统一用 std::filesystem 取大小与修改时间，与 RecursiveGetFilesList 一致。
+			// 原实现用 struct stat（st_mtim）+ stat 失败即 continue，存在两套时间逻辑且偶发漏文件。
+			// 这里 ec 失败仅置 0 并保留条目，减少漏文件。
 			if (entry.is_directory()) {
 				info.set_type(tc::FileDescInfo::kFolder);
+				info.set_size(0);
+				info.set_date(0);
 				if (!desktop_path_.empty() && info.path() == desktop_path_) {
 					info.set_type(tc::FileDescInfo::kDeskFolder);
 				}
 			}
 			else if (entry.is_regular_file()) {
 				info.set_type(tc::FileDescInfo::kFile);
-				info.set_size(static_cast<uint64_t>(st.st_size));
-				info.set_date(static_cast<uint64_t>(st.st_mtim.tv_sec));
+				std::error_code size_ec;
+				info.set_size(fs::file_size(p, size_ec));
+				if (size_ec) {
+					YK_LOGI("[Android] GetFilesListImpl file_size failed, name={}, ec={}", info.name(), size_ec.message());
+					info.set_size(0);
+				}
+				auto ftime = fs::last_write_time(p, ec);
+				if (ec) {
+					YK_LOGI("[Android] GetFilesListImpl last_write_time failed, name={}, ec={}", info.name(), ec.message());
+					info.set_date(0);
+					ec.clear();
+				}
+				else {
+					auto secs = std::chrono::time_point_cast<std::chrono::seconds>(ftime).time_since_epoch().count();
+					info.set_date(static_cast<uint64_t>(secs));
+				}
 			}
 			else {
 				skip_count++;

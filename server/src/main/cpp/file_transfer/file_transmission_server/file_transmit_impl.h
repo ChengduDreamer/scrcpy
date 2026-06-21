@@ -142,12 +142,20 @@ namespace tc {
 		uint64_t speed_by_MB_per_100ms_ = 4 * 1 * 1000 * 1000;
 
 		uint64_t speed_by_bit_per_1000ms_ = 10 * 50 * 1 * 1000 * 1000;
-		
+
 		std::atomic<int64_t> token_bucket_ = { 0 };
+		// BUG-3：令牌桶上限，防止发送方停滞时令牌无限累积（大于背压窗口 180 即可）。
+		static constexpr int64_t kTokenBucketCap = 2048;
 		void GrantTokenBucket();
 		void ResetTokenBucket();
+		// BUG-3：安全消费一个令牌，仅当 token>0 时 CAS 递减，避免超时退出后仍 -- 致负值。
+		bool TryConsumeToken();
 		std::mutex grant_token_mutex_;
 		std::condition_variable grant_token_cv_;
+
+		// 链路是否可用（单一职责：供 token/背压等待谓词短路退出）。
+		// BUG-3/BUG-4：断连或取消时置 false，让阻塞在令牌桶/背压上的下载发送循环及时退出。
+		std::atomic<bool> connection_active_{true};
 
 		std::map<std::string, uint64_t> task_id_with_recved_index_;
 	};

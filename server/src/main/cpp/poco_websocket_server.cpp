@@ -129,7 +129,9 @@ public:
                 frameBuf.resize(0);
                 int n = ws.receiveFrame(frameBuf, flags);
                 if (n < 0) {
-                    continue;
+                    // BUG-8 修复：receiveFrame 持续返回负值表示 socket 处于错误态，
+                    // 原 continue 会致 CPU 100% 死循环。改 break 退出，与 PC 端 ws_client.cpp 一致。
+                    break;
                 }
                 if (n == 0 && flags == 0) {
                     // 注意: 这段代码并不是绝对严谨
@@ -335,17 +337,29 @@ void PocoWebsocketServer::SendLoop() {
             }
             item = std::move(m_sendQueue.front());
             m_sendQueue.pop();
+            // 对称性修复：腾出队列空间后唤醒可能因背压阻塞在 SendBinary 的生产者。
+            // 否则若队列曾触达 kMaxSendQueueSize 上限，SendBinary 会因无人 notify 而长眠
+            // （当前被 HandleDownload 的 180 包背压窗口屏蔽，不会触达，但此处保持健壮）。
+            m_sendCv.notify_one();
         }
 
-        // sendFrame is called ONLY from this thread, never from the handler thread.
-        std::lock_guard<std::mutex> connLock(m_connectionMutex);
-        if (!m_connection) {
-            continue;  // No active connection, discard
+        // NEW-2 修复（+ ISSUE-4）：sendFrame 不再持有 m_connectionMutex。
+        // 原实现在锁内 sendFrame，若 peer TCP 窗口打满且 socket 无 send timeout，
+        // sendFrame 阻塞会卡住 Stop()（Stop 需取同锁才能 close()）→ 互锁挂死。
+        // 改为：锁内拷贝连接副本（Poco::Net::WebSocket 引用计数 impl，拷贝安全），
+        // 锁外发送。Stop() 的 close() 关同一 socket impl，可解除阻塞中的 sendFrame。
+        std::optional<Poco::Net::WebSocket> conn;
+        {
+            std::lock_guard<std::mutex> connLock(m_connectionMutex);
+            if (!m_connection) {
+                continue;  // No active connection, discard
+            }
+            conn = m_connection;  // 拷贝，持有 impl 引用，sendFrame 期间连接不会被释放
         }
         try {
             if (item.isClose) {
                 LOGI("SendLoop sending CLOSE frame");
-                m_connection->sendFrame(
+                conn->sendFrame(
                     "", 0,
                     static_cast<int>(Poco::Net::WebSocket::FRAME_FLAG_FIN) |
                     static_cast<int>(Poco::Net::WebSocket::FRAME_OP_CLOSE));
@@ -353,13 +367,13 @@ void PocoWebsocketServer::SendLoop() {
             }
             if (item.isPong) {
                 LOGD("SendLoop sending PONG, payload=%zu bytes", item.data.size());
-                m_connection->sendFrame(
+                conn->sendFrame(
                     item.data.data(), static_cast<int>(item.data.size()),
                     static_cast<int>(Poco::Net::WebSocket::FRAME_FLAG_FIN) |
                     static_cast<int>(Poco::Net::WebSocket::FRAME_OP_PONG));
             } else {
                 LOGD("SendLoop sending BINARY, payload=%zu bytes", item.data.size());
-                m_connection->sendFrame(
+                conn->sendFrame(
                     item.data.data(), static_cast<int>(item.data.size()),
                     Poco::Net::WebSocket::FRAME_BINARY);
             }
@@ -539,6 +553,12 @@ void PocoWebsocketServer::Stop() {
     // 3. Join SendLoop — after this, NO thread calls sendFrame.
     if (m_sendThread.joinable()) m_sendThread.join();
 
+    // 3.5 唤醒所有阻塞在 EnqueueWork 背压 wait 的 handler 线程（谓词含 !m_running，
+    //     置 false 后须被唤醒才能 return）。这一步必须在 stopAll 之前：否则 step 4 的
+    //     stopAll(true) 会等 handler 退出 handleRequest，而 handler 正卡在 EnqueueWork 里
+    //     等本步骤唤醒 → stopAll 永不返回 → Stop() 挂死。用 notify_all 唤醒全部等待者。
+    m_workCv.notify_all();
+
     // 4. Stop Poco HTTP server (waits for handler threads to finish)
     try {
         if (m_server) {
@@ -548,8 +568,7 @@ void PocoWebsocketServer::Stop() {
     m_server.reset();
     m_socket.reset();
 
-    // 5. Wake up and join work thread
-    m_workCv.notify_one();
+    // 5. Join work thread（队列已被清空，谓词 !m_running 命中退出）。
     if (m_workThread.joinable()) m_workThread.join();
 
     // 6. Clear residual queues
