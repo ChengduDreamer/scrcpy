@@ -21,18 +21,27 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void * /* reserved */) {
     g_jvm = vm;
     LOGI("JNI_OnLoad: scrcpy_native library loaded");
 
-    auto* plugin = static_cast<tc::FileTransferPlugin*>(GetInstance());
-    plugin->Create([](const std::string& stream_id,
-                      const std::vector<uint8_t>& data) -> bool {
-        (void)stream_id;
-        if (!g_wsServer.HasConnection()) {
-            LOGE("SendProtoMessage: no WebSocket connection");
-            return false;
-        }
-        return g_wsServer.SendBinary(data.data(), data.size());
-    });
+    try {
+        auto* plugin = static_cast<tc::FileTransferPlugin*>(GetInstance());
+        plugin->Create([](const std::string& stream_id,
+                          const std::vector<uint8_t>& data) -> bool {
+            (void)stream_id;
+            if (!g_wsServer.HasConnection()) {
+                LOGE("SendProtoMessage: no WebSocket connection");
+                return false;
+            }
+            return g_wsServer.SendBinary(data.data(), data.size());
+        });
+    } catch (const std::exception& e) {
+        LOGE("JNI_OnLoad: plugin->Create failed: %s", e.what());
+        return JNI_ERR;
+    } catch (...) {
+        LOGE("JNI_OnLoad: plugin->Create failed: unknown exception");
+        return JNI_ERR;
+    }
 
     // Capture plugin pointer to avoid repeated GetInstance() calls
+    auto* plugin = static_cast<tc::FileTransferPlugin*>(GetInstance());
     g_wsServer.SetOnBinaryMessage([plugin](const uint8_t* data, size_t len) {
         auto msg = std::make_shared<tc::Message>();
         if (!msg->ParseFromArray(data, static_cast<int>(len))) {

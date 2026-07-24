@@ -16,6 +16,7 @@
 #include <Poco/Net/WebSocket.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <string>
 
@@ -437,11 +438,26 @@ void PocoWebsocketServer::EnqueueWork(std::vector<uint8_t> data) {
     {
         std::unique_lock<std::mutex> lock(m_workMutex);
         // 如果队列满了，阻塞等待（背压）
+        auto enqueue_enter = std::chrono::steady_clock::now();
         m_workCv.wait(lock, [this] {
             return m_workQueue.size() < kMaxWorkQueueSize || !m_running;
         });
         if (!m_running) {
-            return; // 服务器已停止，不收了
+            // [DIAG] 关键丢弃点：服务器停止时丢弃待入队消息。若传输中频现此日志，
+            // 说明断连发生在传输过程中，对应 task 会由 OnConnectionLost 清理。
+            LOGW("EnqueueWork DROPPED(reason=server_stopped) data_size=%zu, queue_depth=%zu/%zu",
+                 data.size(), m_workQueue.size(), kMaxWorkQueueSize);
+            return;
+        }
+        // [DIAG] 记录背压等待耗时与队列深度。若 wait_ms 持续 >0 且 queue_depth 接近上限，
+        // 说明 WorkLoop 消费速度跟不上 WebSocket 接收速度，是"上传丢包"的可能根因之一：
+        // handler 线程被阻塞在 EnqueueWork，不再从 socket 读帧 → TCP 接收窗口满 →
+        // 对端 sendFrame 阻塞/超时 → 发送侧 SEND_FAIL(TIMEOUT)。
+        auto enqueue_exit = std::chrono::steady_clock::now();
+        auto wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(enqueue_exit - enqueue_enter).count();
+        if (wait_ms > 0) {
+            LOGW("EnqueueWork BACKPRESSURE wait_ms=%lld, data_size=%zu, queue_depth=%zu/%zu",
+                 static_cast<long long>(wait_ms), data.size(), m_workQueue.size(), kMaxWorkQueueSize);
         }
         // 把数据放入工作队列
         m_workQueue.push(std::move(data));

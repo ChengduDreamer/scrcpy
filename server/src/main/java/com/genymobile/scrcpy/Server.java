@@ -38,6 +38,9 @@ public final class Server {
 
     public static final String SERVER_PATH;
 
+    // 须与 PC 端 QtScrcpy/QtScrcpy/ui/phone_widget.cpp 中 kMirrorWebSocketPort 保持一致
+    private static final int MIRROR_WEBSOCKET_PORT = 29747;
+
     static {
         String[] classPaths = System.getProperty("java.class.path").split(File.pathSeparator);
         // By convention, scrcpy is always executed with the absolute path of scrcpy-server.jar as the first item in the classpath
@@ -57,7 +60,9 @@ public final class Server {
             if (fatalError) {
                 this.fatalError = true;
             }
+            Ln.i("Completion: running=" + running + " fatalError=" + fatalError);
             if (running == 0 || this.fatalError) {
+                Ln.i("Completion: quitting Looper (fatalError=" + this.fatalError + ")");
                 Looper.getMainLooper().quitSafely();
             }
         }
@@ -167,9 +172,12 @@ public final class Server {
 
             // to do: test
             //NativeBridge.startHttpServer(18080);
-            NativeBridge.startWebSocketServer(29747);
+            NativeBridge.startWebSocketServer(MIRROR_WEBSOCKET_PORT);
+            Ln.i("WebSocket server started, entering Looper.loop()");
             Looper.loop(); // interrupted by the Completion implementation
+            Ln.i("Looper.loop() returned, server shutting down");
         } finally {
+            Ln.i("Server finally block: stopping WebSocket, cleaning up");
             NativeBridge.stopWebSocketServer();
 
             if (cleanUp != null) {
@@ -223,12 +231,13 @@ public final class Server {
         try {
             internalMain(args);
         } catch (Throwable t) {
-            Ln.e(t.getMessage(), t);
+            Ln.e("Server crashed: " + t.getMessage(), t);
             status = 1;
         } finally {
             // By default, the Java process exits when all non-daemon threads are terminated.
             // The Android SDK might start some non-daemon threads internally, preventing the scrcpy server to exit.
             // So force the process to exit explicitly.
+            Ln.i("Server exiting with status=" + status);
             System.exit(status);
         }
     }

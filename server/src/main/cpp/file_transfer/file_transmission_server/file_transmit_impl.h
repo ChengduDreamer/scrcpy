@@ -81,6 +81,10 @@ namespace tc {
 		
 		void HandleSaveFileException(const std::string& stream_id, tc::FileTransSaveFileException data_packet);
 
+		// FIX-7 修复：处理 PC 下发的取消指令（kCancelDownload/kCancelUpload）。
+		// is_download=true 取消下载发送循环；false 防御性结束上传任务。
+		void HandleCancelTransmit(const std::string& task_id, bool is_download);
+
 		void HandleFileTransDataPacketResponse(const std::string& stream_id, tc::FileTransDataPacketResponse data_packet_resp);
 
 		void OnConnectionLost();

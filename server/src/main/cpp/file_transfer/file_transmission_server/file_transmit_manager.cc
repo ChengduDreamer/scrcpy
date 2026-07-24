@@ -137,6 +137,19 @@ namespace tc {
 				file_transmit_impl_->HandleDownload(msg->device_id(), msg->stream_id(), download_path, save_path, task_id);
 			}));
 		}
+		else if (operate.operate_type() == tc::FileOperateionsEvent::kCancelDownload) {
+			// FIX-7 修复：PC 取消下载指令，转发给传输层置 kCancel 并唤醒下载发送循环。
+			// 与 PC 取消下载走 kFileTransSaveFileException 的现有路径并存，不删旧路径。
+			std::string task_id = operate.task_id();
+			YK_LOGI("[Android] HandleFileOperateMsg kCancelDownload task_id={}", task_id);
+			file_transmit_impl_->HandleCancelTransmit(task_id, true);
+		}
+		else if (operate.operate_type() == tc::FileOperateionsEvent::kCancelUpload) {
+			// FIX-7 修复：PC 取消上传指令（防御性分支，实际取消上传主要靠数据包 kCancel 态）。
+			std::string task_id = operate.task_id();
+			YK_LOGI("[Android] HandleFileOperateMsg kCancelUpload task_id={}", task_id);
+			file_transmit_impl_->HandleCancelTransmit(task_id, false);
+		}
 	}
 
 	// 对端保存文件异常或者对端取消任务 会发送此消息
