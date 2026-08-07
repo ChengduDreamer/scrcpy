@@ -1,5 +1,11 @@
 #include "jni_helper.h"
 
+#include <android/log.h>
+
+#define TAG "scrcpy-native"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+
 extern JavaVM *g_jvm;
 
 std::string JniHelper::AsString(JNIEnv *env, jstring js) {
@@ -34,4 +40,65 @@ JNIEnv *GetJniEnv() {
         return env;
     }
     return nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// MediaScanner bridge (native -> Java)
+// ---------------------------------------------------------------------------
+
+static jclass g_media_scanner_class = nullptr;
+static jmethodID g_scan_files_method = nullptr;
+
+void CacheMediaScannerJni(JNIEnv *env) {
+    jclass cls = env->FindClass("com/genymobile/scrcpy/util/MediaScanner");
+    if (!cls) {
+        env->ExceptionClear();
+        LOGE("CacheMediaScannerJni: MediaScanner class not found");
+        return;
+    }
+    g_media_scanner_class = static_cast<jclass>(env->NewGlobalRef(cls));
+    env->DeleteLocalRef(cls);
+    g_scan_files_method =
+        env->GetStaticMethodID(g_media_scanner_class, "scanFiles",
+                               "([Ljava/lang/String;)V");
+    if (!g_scan_files_method) {
+        env->ExceptionClear();
+        env->DeleteGlobalRef(g_media_scanner_class);
+        g_media_scanner_class = nullptr;
+        LOGE("CacheMediaScannerJni: scanFiles method not found");
+        return;
+    }
+    LOGI("CacheMediaScannerJni: MediaScanner.scanFiles cached");
+}
+
+void ScanMediaFiles(const std::vector<std::string> &paths) {
+    if (paths.empty() || !g_media_scanner_class || !g_scan_files_method) {
+        return;
+    }
+    JNIEnv *env = GetJniEnv();
+    if (!env) {
+        LOGE("ScanMediaFiles: no JNIEnv");
+        return;
+    }
+    jclass string_class = env->FindClass("java/lang/String");
+    jobjectArray jpaths = env->NewObjectArray(static_cast<jsize>(paths.size()),
+                                              string_class, nullptr);
+    env->DeleteLocalRef(string_class);
+    if (!jpaths) {
+        env->ExceptionClear();
+        LOGE("ScanMediaFiles: NewObjectArray failed");
+        return;
+    }
+    for (size_t i = 0; i < paths.size(); ++i) {
+        jstring jpath = env->NewStringUTF(paths[i].c_str());
+        env->SetObjectArrayElement(jpaths, static_cast<jsize>(i), jpath);
+        env->DeleteLocalRef(jpath);
+    }
+    env->CallStaticVoidMethod(g_media_scanner_class, g_scan_files_method,
+                              jpaths);
+    env->DeleteLocalRef(jpaths);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        LOGE("ScanMediaFiles: scanFiles threw");
+    }
 }

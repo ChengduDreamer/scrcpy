@@ -6,6 +6,7 @@
 #include <atomic>
 #include <functional>
 #include <condition_variable>
+#include <vector>
 #include <asio2/asio2.hpp>
 #include "mirror_message.pb.h"
 #include "cpp_base_lib/file.h"
@@ -162,6 +163,15 @@ namespace tc {
 		std::atomic<bool> connection_active_{true};
 
 		std::map<std::string, uint64_t> task_id_with_recved_index_;
+
+		// MediaScanner 批量刷新：上传成功的文件先收集，静默 1.5s 无新成功后
+		// 一次性扫描（文件夹递归传输不会每个文件触发一次媒体库扫描）。
+		// 三个成员均由 pending_scan_mutex_ 保护。
+		void ScheduleMediaScan(const std::string& file_path);
+		void FlushPendingMediaScan();
+		std::mutex pending_scan_mutex_;
+		std::vector<std::string> pending_scan_paths_;
+		int scan_timer_id_ = -1;
 	};
 
 }

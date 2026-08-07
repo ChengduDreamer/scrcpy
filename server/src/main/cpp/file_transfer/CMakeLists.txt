@@ -15,6 +15,7 @@ set(PLUGIN_SRCS
 add_library(${PROJECT_NAME} STATIC ${PLUGIN_SRCS})
 target_include_directories(${PROJECT_NAME} PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
     ${CMAKE_CURRENT_SOURCE_DIR}/../deps/cpp_base_lib
     ${CMAKE_CURRENT_SOURCE_DIR}/../deps/3rdparty/asio2/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../deps/3rdparty/asio2/3rd

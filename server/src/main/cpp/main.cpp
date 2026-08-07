@@ -21,6 +21,12 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void * /* reserved */) {
     g_jvm = vm;
     LOGI("JNI_OnLoad: scrcpy_native library loaded");
 
+    // Cache the MediaScanner bridge here: at load time the calling Java
+    // thread's class loader sees the server classes.
+    if (JNIEnv *env = GetJniEnv()) {
+        CacheMediaScannerJni(env);
+    }
+
     try {
         auto* plugin = static_cast<tc::FileTransferPlugin*>(GetInstance());
         plugin->Create([](const std::string& stream_id,

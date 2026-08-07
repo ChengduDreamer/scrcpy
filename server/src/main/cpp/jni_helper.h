@@ -18,4 +18,12 @@ public:
 // Get JNIEnv from any thread
 JNIEnv *GetJniEnv();
 
+// Cache the MediaScanner class and method (call once from JNI_OnLoad, where the
+// calling thread's class loader sees the server classes).
+void CacheMediaScannerJni(JNIEnv *env);
+
+// Ask Android to media-scan the given files (batched by the caller).
+// Never throws; no-op when the Java class could not be cached.
+void ScanMediaFiles(const std::vector<std::string> &paths);
+
 #endif  // JNI_HELPER_H

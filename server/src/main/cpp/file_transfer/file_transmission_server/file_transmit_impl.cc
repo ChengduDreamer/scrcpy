@@ -1,6 +1,7 @@
 #include "file_transmit_impl.h"
 #include <filesystem>
 #include <vector>
+#include "jni_helper.h"
 #include "cpp_base_lib/yk_logger.h"
 #include "cpp_base_lib/time_util.h"
 #include "cpp_base_lib/file.h"
@@ -90,6 +91,28 @@ namespace tc {
 			}
 	}
 
+	void FileTransmitImpl::ScheduleMediaScan(const std::string& file_path) {
+		std::lock_guard<std::mutex> lck{ pending_scan_mutex_ };
+		pending_scan_paths_.push_back(file_path);
+		// 去抖：连续传输时不断推迟，静默 1.5s 后批量扫描一次
+		if (scan_timer_id_ >= 0) {
+			StopTimer(scan_timer_id_);
+		}
+		scan_timer_id_ = AddTimer(std::chrono::milliseconds(1500), [this]() {
+			FlushPendingMediaScan();
+		});
+	}
+
+	void FileTransmitImpl::FlushPendingMediaScan() {
+		std::vector<std::string> paths;
+		{
+			std::lock_guard<std::mutex> lck{ pending_scan_mutex_ };
+			paths.swap(pending_scan_paths_);
+			scan_timer_id_ = -1;
+		}
+		ScanMediaFiles(paths);
+	}
+
 	void FileTransmitImpl::HandleUpload(const std::string& device_id, const std::string& stream_id, tc::FileTransDataPacket file_data_packet) {
 		std::string task_id;
 		try {
@@ -116,6 +139,9 @@ namespace tc {
 			// FIX-1 修复：取消/对端出错时删除半成品目标文件所需的信息
 			bool need_remove_target = false;
 			std::string remove_target_path;
+			// 上传校验成功的文件，解锁后触发媒体库批量扫描（与 FIX-6 同组延迟动作）
+			bool need_media_scan = false;
+			std::string media_scan_path;
 			{
 				std::lock_guard<std::mutex> lck{ id_with_upload_task_mutex_ };
 				// FIX-6：标记是否提前结束本次处理（对应原实现的各个 return 分支），无回调的纯忽略也用它
@@ -245,6 +271,8 @@ namespace tc {
 							YK_LOGI("[Android-Upload][{}] RESULT=VERIFY_OK", task_id);
 							need_upload_cb = true;
 							upload_cb_state = FileUploadTask::EFileUploadState::kSuccess;
+							need_media_scan = true;
+							media_scan_path = target_file.string();
 						}
 						else {
 							YK_LOGE("[Android-Upload][{}] RESULT=VERIFY_FAIL src_size={}, target_size={}", task_id, src_file_size, target_file_size);
@@ -293,6 +321,9 @@ namespace tc {
 			}
 			if (need_upload_cb) {
 				call_upload_callback(stream_id, task_id, upload_cb_state);
+			}
+			if (need_media_scan) {
+				ScheduleMediaScan(media_scan_path);
 			}
 			if (need_remove_target && !remove_target_path.empty()) {
 				// FIX-1 修复：带 error_code 版本删除半成品文件，失败仅记日志。
