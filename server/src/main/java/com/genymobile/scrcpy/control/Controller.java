@@ -363,14 +363,54 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
         return true;
     }
 
+    // Inject characters which cannot be mapped to key events (e.g. CJK) as a
+    // single ACTION_MULTIPLE event, like "adb shell input text" does
+    private boolean injectTextChunk(String text) {
+        // This public constructor creates an ACTION_MULTIPLE event carrying
+        // the characters (deprecated, but still functional)
+        KeyEvent event = new KeyEvent(SystemClock.uptimeMillis(), text, KeyCharacterMap.VIRTUAL_KEYBOARD, 0);
+        try {
+            return Device.injectEvent(event, getActionDisplayId(), Device.INJECT_MODE_ASYNC);
+        } catch (Throwable t) {
+            Ln.e("Could not inject text chunk", t);
+            return false;
+        }
+    }
+
     private int injectText(String text) {
         int successCount = 0;
-        for (char c : text.toCharArray()) {
+        // Characters which cannot be typed via the key character map are
+        // accumulated here and injected as one ACTION_MULTIPLE event on flush
+        StringBuilder pending = new StringBuilder();
+        // Iterate by code point so that surrogate pairs (e.g. emoji) are never split
+        for (int offset = 0; offset < text.length();) {
+            int codePoint = text.codePointAt(offset);
+            int chunkLength = Character.charCount(codePoint);
+            String chunk = text.substring(offset, offset + chunkLength);
+            offset += chunkLength;
+
+            char c = chunk.charAt(0);
+            String decomposed = KeyComposition.decompose(c);
+            char[] chars = decomposed != null ? decomposed.toCharArray() : chunk.toCharArray();
+            if (charMap.getEvents(chars) == null) {
+                pending.append(chunk);
+                continue;
+            }
+
+            if (pending.length() > 0) {
+                if (!injectTextChunk(pending.toString())) {
+                    Ln.w("Could not inject text chunk (ACTION_MULTIPLE)");
+                }
+                pending.setLength(0);
+            }
             if (!injectChar(c)) {
                 Ln.w("Could not inject char u+" + String.format("%04x", (int) c));
                 continue;
             }
             successCount++;
+        }
+        if (pending.length() > 0 && !injectTextChunk(pending.toString())) {
+            Ln.w("Could not inject text chunk (ACTION_MULTIPLE)");
         }
         return successCount;
     }
@@ -593,14 +633,14 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
     private boolean setClipboard(String text, boolean paste, long sequence) {
         isSettingClipboard.set(true);
         boolean ok = Device.setClipboardText(text);
-        isSettingClipboard.set(false);
         if (ok) {
             Ln.i("Device clipboard set");
         }
 
         // On Android >= 7, also press the PASTE key if requested
         if (paste && Build.VERSION.SDK_INT >= AndroidVersions.API_24_ANDROID_7_0 && supportsInputEvents) {
-            pressReleaseKeycode(KeyEvent.KEYCODE_PASTE, Device.INJECT_MODE_ASYNC);
+            // Wait until the event is finished, to ensure that the paste happens after the clipboard has been set
+            pressReleaseKeycode(KeyEvent.KEYCODE_PASTE, Device.INJECT_MODE_WAIT_FOR_FINISH);
         }
 
         if (sequence != ControlMessage.SEQUENCE_INVALID) {
@@ -608,6 +648,8 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
             DeviceMessage msg = DeviceMessage.createAckClipboard(sequence);
             sender.send(msg);
         }
+
+        isSettingClipboard.set(false);
 
         return ok;
     }
