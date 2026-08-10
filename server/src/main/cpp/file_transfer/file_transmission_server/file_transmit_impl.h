@@ -14,7 +14,7 @@
 
 namespace tc {
 
-    constexpr uint64_t kSingleBufferSize = 1024 * 4;
+    constexpr uint64_t kSingleBufferSize = 1024 * 64;
 
 	class FileUploadTask {
 	public:
@@ -150,7 +150,8 @@ namespace tc {
 
 		std::atomic<int64_t> token_bucket_ = { 0 };
 		// BUG-3：令牌桶上限，防止发送方停滞时令牌无限累积（大于背压窗口 180 即可）。
-		static constexpr int64_t kTokenBucketCap = 2048;
+		// 64KB 分片后按字节规模等比下调（2048×4KB→256×64KB，突发上限约 16MB），仍 > 180 窗口。
+		static constexpr int64_t kTokenBucketCap = 256;
 		void GrantTokenBucket();
 		void ResetTokenBucket();
 		// BUG-3：安全消费一个令牌，仅当 token>0 时 CAS 递减，避免超时退出后仍 -- 致负值。
