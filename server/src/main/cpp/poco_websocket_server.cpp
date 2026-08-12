@@ -13,6 +13,7 @@
 #include <Poco/Net/HTTPServerResponse.h>
 #include <Poco/Net/NetException.h>
 #include <Poco/Net/ServerSocket.h>
+#include <Poco/Net/SocketAddress.h>
 #include <Poco/Net/WebSocket.h>
 
 #include <algorithm>
@@ -500,8 +501,11 @@ bool PocoWebsocketServer::Start(int port) {
     }
 
     try {
-        m_socket = std::make_unique<Poco::Net::ServerSocket>(
-            static_cast<Poco::UInt16>(port));
+        // Bind to loopback only: PC reaches the server via `adb forward`, so
+        // listening on 0.0.0.0 would needlessly expose the port to the LAN.
+        const Poco::Net::SocketAddress bindAddr(
+            "127.0.0.1", static_cast<Poco::UInt16>(port));
+        m_socket = std::make_unique<Poco::Net::ServerSocket>(bindAddr);
         auto *params = new Poco::Net::HTTPServerParams();
         params->setMaxQueued(64);
         params->setMaxThreads(8);
@@ -521,7 +525,7 @@ bool PocoWebsocketServer::Start(int port) {
             new WsHandlerFactory(this), *m_socket, params);
         m_server->start();
 
-        LOGI("Poco WebSocket server listening on port %d, path %s", port,
+        LOGI("Poco WebSocket server listening on 127.0.0.1:%d, path %s", port,
              kWebSocketPath);
         return true;
     } catch (const std::exception &e) {

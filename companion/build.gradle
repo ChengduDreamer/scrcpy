@@ -1,0 +1,53 @@
+apply plugin: 'com.android.application'
+apply plugin: 'com.google.protobuf'
+
+android {
+    namespace = 'com.mivox.mirror.agent'
+    compileSdk 36
+    defaultConfig {
+        applicationId "com.mivox.mirror.agent"
+        minSdkVersion 26
+        targetSdkVersion 36
+        versionCode 1
+        versionName "1.0"
+    }
+    buildTypes {
+        debug {
+            debuggable true
+            minifyEnabled false
+        }
+        release {
+            minifyEnabled false
+        }
+    }
+    buildFeatures {
+        buildConfig = true
+    }
+    sourceSets {
+        main {
+            // 与 shell server / PC 端共享同一 proto 仓库，不另存副本
+            proto {
+                srcDir '../server/src/main/cpp/dep_message/QtMirrorProto'
+            }
+        }
+    }
+}
+
+protobuf {
+    protoc {
+        artifact = 'com.google.protobuf:protoc:4.35.1'
+    }
+    generateProtoTasks {
+        all().each { task ->
+            task.builtins {
+                java {
+                    option 'lite'
+                }
+            }
+        }
+    }
+}
+
+dependencies {
+    implementation 'com.google.protobuf:protobuf-javalite:4.35.1'
+}

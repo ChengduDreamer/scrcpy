@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mivox Agent</string>
+    <string name="installed_hint">Mivox Agent 已安装。通知同步由电脑端自动驱动，无需在此操作。</string>
+    <string name="fgs_title">Mivox Agent 正在运行（通知同步保活）</string>
+</resources>

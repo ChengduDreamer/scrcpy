@@ -70,6 +70,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
     test_native.cpp
     http_server.cpp
     poco_websocket_server.cpp
+    notification/notification_relay.cpp
 )
 
 find_library(log-lib log)

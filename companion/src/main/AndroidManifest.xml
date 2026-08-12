@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- IPC 走设备回环 TCP（127.0.0.1:29748），回环连接同样需要 INTERNET 权限 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 前台服务保活：对抗 ROM 进程冻结（ColorOS 实证会冻结 BFGS 状态进程导致通知回调丢失） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- PC 经 adb shell am broadcast 下发会话 token（显式 component） -->
+        <receiver
+            android:name=".TokenReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.mivox.mirror.agent.action.SET_TOKEN" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+          exported=false + BIND_NOTIFICATION_LISTENER_SERVICE：只有系统可以 bind
+          （system uid 绕过 exported 检查）。shell 无法 start 非导出服务
+          （ActiveServices.retrieveServiceLocked -> checkComponentPermission），
+          因此 token 不走 am startservice，改走上面的广播接收器。
+        -->
+        <service
+            android:name=".NotificationBridgeService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="keep notification listener alive against ROM process freezing" />
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+    </application>
+
+</manifest>

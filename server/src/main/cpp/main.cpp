@@ -7,6 +7,7 @@
 #include "test_native.h"
 #include "file_transfer_plugin.h"
 #include "mirror_message.pb.h"
+#include "notification/notification_relay.h"
 
 #define TAG "scrcpy-native"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -16,6 +17,7 @@ JavaVM *g_jvm = nullptr;
 
 static scrcpy::HttpServer g_httpServer;
 static scrcpy::PocoWebsocketServer g_wsServer;
+static scrcpy::NotificationRelay g_notificationRelay;
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void * /* reserved */) {
     g_jvm = vm;
@@ -73,6 +75,10 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void * /* reserved */) {
         // File transfer messages: enum 260-320 (// file transfer begin ~ end)
         if (type >= tc::kFileOperationEvent && type <= tc::kFileTransSaveFileException) {
             plugin->OnMessage(msg);
+        } else if (type == tc::kNotificationControl) {
+            // PC -> agent APK: forward the raw envelope bytes over the relay
+            // IPC; the relay re-frames them (4B BE length) for the APK.
+            g_notificationRelay.SendControl(data, len);
         } else {
             LOGI("Ignored non-file-transfer message type: %d", static_cast<int>(type));
         }
@@ -85,6 +91,16 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void * /* reserved */) {
         } else {
             LOGI("WebSocket connected");
         }
+    });
+
+    // Notification relay: forward verified agent frames to the PC over the
+    // existing WebSocket channel. No WS connection -> drop (relay logs it,
+    // throttled).
+    g_notificationRelay.SetSendToPcHandler([](const uint8_t* data, size_t len) {
+        if (!g_wsServer.HasConnection()) {
+            return false;
+        }
+        return g_wsServer.SendBinary(data, len);
     });
 
     return JNI_VERSION_1_6;
@@ -165,6 +181,11 @@ Java_com_genymobile_scrcpy_NativeBridge_startWebSocketServer(
     JNIEnv * /*env*/, jclass /*clazz*/, jint port) {
     bool ok = g_wsServer.Start(port);
     LOGI("===>0 startWebSocketServer(%d): %s", port, ok ? "started" : "failed");
+    // Notification relay shares the WebSocket server's lifecycle (Server.java
+    // starts/stops both through this single JNI pair). A relay failure must
+    // not break mirroring, so it is logged but not propagated.
+    bool relayOk = g_notificationRelay.Start();
+    LOGI("startNotificationRelay: %s", relayOk ? "started" : "failed");
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -172,6 +193,7 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_genymobile_scrcpy_NativeBridge_stopWebSocketServer(
     JNIEnv * /*env*/, jclass /*clazz*/) {
     LOGI("stopWebSocketServer");
+    g_notificationRelay.Stop();
     g_wsServer.Stop();
 }
 
