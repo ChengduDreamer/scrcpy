@@ -24,7 +24,7 @@ namespace scrcpy {
 //   PC --(kNotificationControl)--> relay --(framed)--> companion APK
 //
 // Security: the first frame on a new TCP connection must be
-// kNotificationHandshake whose token matches /data/local/tmp/mivox_agent_token
+// kNotificationHandshake whose token matches /data/local/tmp/originpixel_agent_token
 // (written by PC via adb, 0600). If the token file is missing/unreadable the
 // relay rejects every connection (logged, never crashes).
 //
@@ -42,7 +42,7 @@ public:
 
     static constexpr int kDefaultPort = 29748;
     static constexpr size_t kMaxFrameSize = 64 * 1024;  // single frame cap
-    static constexpr const char* kTokenFilePath = "/data/local/tmp/mivox_agent_token";
+    static constexpr const char* kTokenFilePath = "/data/local/tmp/originpixel_agent_token";
 
     NotificationRelay();
     ~NotificationRelay();

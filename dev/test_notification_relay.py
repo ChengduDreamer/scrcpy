@@ -3,7 +3,7 @@
 
 Prereq:
   adb forward tcp:29748 tcp:29748
-  adb shell "echo -n test-token-123 > /data/local/tmp/mivox_agent_token && chmod 600 /data/local/tmp/mivox_agent_token"
+  adb shell "echo -n test-token-123 > /data/local/tmp/originpixel_agent_token && chmod 600 /data/local/tmp/originpixel_agent_token"
 
 Covers:
   1. wrong token  -> connection must be closed by the relay

@@ -1,4 +1,4 @@
-package com.mivox.mirror.agent;
+package com.originpixel.mirror.agent;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -7,14 +7,14 @@ import android.text.TextUtils;
 
 /**
  * Receives the session token delivered by the PC via
- * `adb shell am broadcast -n com.mivox.mirror.agent/.TokenReceiver
- *     -a com.mivox.mirror.agent.action.SET_TOKEN --es token <TOKEN>`.
+ * `adb shell am broadcast -n com.originpixel.mirror.agent/.TokenReceiver
+ *     -a com.originpixel.mirror.agent.action.SET_TOKEN --es token <TOKEN>`.
  *
  * This broadcast is only the fast path: it applies instantly while the
  * process is alive, but it may never execute when the ROM has frozen the
  * process (observed on ColorOS: "Broadcast completed" yet onReceive never
  * runs). The reliable channel is the world-readable token file
- * /data/local/tmp/mivox_agent_token (0644), which NotificationBridgeService
+ * /data/local/tmp/originpixel_agent_token (0644), which NotificationBridgeService
  * reads directly before every IPC connect attempt.
  *
  * The token is cached in SharedPreferences (fallback); when the listener
@@ -24,7 +24,7 @@ import android.text.TextUtils;
  */
 public class TokenReceiver extends BroadcastReceiver {
 
-    static final String ACTION_SET_TOKEN = "com.mivox.mirror.agent.action.SET_TOKEN";
+    static final String ACTION_SET_TOKEN = "com.originpixel.mirror.agent.action.SET_TOKEN";
 
     @Override
     public void onReceive(Context context, Intent intent) {

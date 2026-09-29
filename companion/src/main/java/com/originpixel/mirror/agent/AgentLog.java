@@ -1,4 +1,4 @@
-package com.mivox.mirror.agent;
+package com.originpixel.mirror.agent;
 
 import android.content.Context;
 import android.util.Log;
@@ -15,10 +15,10 @@ import java.util.concurrent.Executors;
 
 /**
  * Minimal file logger for on-device debugging. Some ROMs hide the app's
- * logcat output entirely (observed on ColorOS: the MivoxAgent tag never
+ * logcat output entirely (observed on ColorOS: the OriginPixelAgent tag never
  * reaches any buffer), so key agent events are also appended to
  * files/agent.log — read it via
- * `adb shell run-as com.mivox.mirror.agent cat files/agent.log` (debug build).
+ * `adb shell run-as com.originpixel.mirror.agent cat files/agent.log` (debug build).
  *
  * Lines carry a wall-clock timestamp and the caller's thread name. All file
  * writes run on a single daemon thread and every failure is swallowed, so
@@ -30,7 +30,7 @@ import java.util.concurrent.Executors;
  */
 final class AgentLog {
 
-    private static final String TAG = "MivoxAgent";
+    private static final String TAG = "OriginPixelAgent";
     private static final String FILE_NAME = "agent.log";
     private static final long MAX_BYTES = 256L * 1024L;
 
@@ -50,7 +50,7 @@ final class AgentLog {
         try {
             file = new File(context.getApplicationContext().getFilesDir(), FILE_NAME);
             writer = Executors.newSingleThreadExecutor(r -> {
-                Thread thread = new Thread(r, "MivoxAgent-Log");
+                Thread thread = new Thread(r, "OriginPixelAgent-Log");
                 thread.setDaemon(true);
                 return thread;
             });
@@ -123,7 +123,7 @@ final class AgentLog {
             out = new FileOutputStream(f, !truncate);
             if (truncate) {
                 String marker = tsFormat.format(new Date(nowMs))
-                        + " W [MivoxAgent-Log] --- log truncated, restarting from head ---\n";
+                        + " W [OriginPixelAgent-Log] --- log truncated, restarting from head ---\n";
                 out.write(marker.getBytes(StandardCharsets.UTF_8));
             }
             out.write(line.getBytes(StandardCharsets.UTF_8));

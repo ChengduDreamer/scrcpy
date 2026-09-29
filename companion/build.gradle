@@ -2,10 +2,10 @@ apply plugin: 'com.android.application'
 apply plugin: 'com.google.protobuf'
 
 android {
-    namespace = 'com.mivox.mirror.agent'
+    namespace = 'com.originpixel.mirror.agent'
     compileSdk 36
     defaultConfig {
-        applicationId "com.mivox.mirror.agent"
+        applicationId "com.originpixel.mirror.agent"
         minSdkVersion 26
         targetSdkVersion 36
         versionCode 1

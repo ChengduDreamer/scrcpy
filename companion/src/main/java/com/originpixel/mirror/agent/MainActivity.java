@@ -1,4 +1,4 @@
-package com.mivox.mirror.agent;
+package com.originpixel.mirror.agent;
 
 import android.app.Activity;
 import android.os.Bundle;

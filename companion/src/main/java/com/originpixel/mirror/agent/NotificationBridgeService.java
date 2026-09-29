@@ -1,4 +1,4 @@
-package com.mivox.mirror.agent;
+package com.originpixel.mirror.agent;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -34,7 +34,7 @@ import tc.MirrorMessage.NotificationEvent;
  *
  * The system binds this service once the listener is authorized; the session
  * token is delivered out-of-band — primarily read by the agent directly from
- * the world-readable file /data/local/tmp/mivox_agent_token (written 0644 by
+ * the world-readable file /data/local/tmp/originpixel_agent_token (written 0644 by
  * the PC) before every IPC connect (the reliable channel), with the
  * SET_TOKEN broadcast (TokenReceiver) as a best-effort fast path — and
  * cached in SharedPreferences as fallback, then used for the IPC handshake
@@ -46,9 +46,9 @@ import tc.MirrorMessage.NotificationEvent;
  */
 public class NotificationBridgeService extends NotificationListenerService {
 
-    private static final String PREFS_NAME = "mivox_agent";
+    private static final String PREFS_NAME = "originpixel_agent";
     private static final String PREF_TOKEN = "token";
-    private static final String TOKEN_FILE_PATH = "/data/local/tmp/mivox_agent_token";
+    private static final String TOKEN_FILE_PATH = "/data/local/tmp/originpixel_agent_token";
     /** Read cap; the token itself is 32 hex chars. */
     private static final int TOKEN_FILE_MAX_BYTES = 128;
     static final String EXTRA_TOKEN = "token";
@@ -89,7 +89,7 @@ public class NotificationBridgeService extends NotificationListenerService {
     }
 
     /**
-     * Reads the latest token from /data/local/tmp/mivox_agent_token, written
+     * Reads the latest token from /data/local/tmp/originpixel_agent_token, written
      * by the PC deploy chain via
      * `adb shell "echo -n <token> > <path> && chmod 644 <path>"`.
      * This is the reliable delivery channel: the SET_TOKEN broadcast may

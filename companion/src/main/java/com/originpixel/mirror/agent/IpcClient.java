@@ -1,4 +1,4 @@
-package com.mivox.mirror.agent;
+package com.originpixel.mirror.agent;
 
 import android.os.SystemClock;
 
@@ -33,7 +33,7 @@ import tc.MirrorMessage.NotificationHandshake;
  * included) the token is refreshed via TokenRefresher: the SET_TOKEN
  * broadcast may never reach a process frozen by the ROM, so the PC also
  * publishes the token in the world-readable file
- * /data/local/tmp/mivox_agent_token (0644) for the agent to read directly.
+ * /data/local/tmp/originpixel_agent_token (0644) for the agent to read directly.
  * All socket writes run on a single-thread executor so frames never
  * interleave.
  *
@@ -104,7 +104,7 @@ final class IpcClient {
         }
         running = true;
         generation++;
-        ioThread = new Thread(this::runIoLoop, "MivoxAgent-Ipc");
+        ioThread = new Thread(this::runIoLoop, "OriginPixelAgent-Ipc");
         ioThread.start();
     }
 

@@ -28,7 +28,7 @@
             android:name=".TokenReceiver"
             android:exported="true">
             <intent-filter>
-                <action android:name="com.mivox.mirror.agent.action.SET_TOKEN" />
+                <action android:name="com.originpixel.mirror.agent.action.SET_TOKEN" />
             </intent-filter>
         </receiver>
 
